@@ -1,4 +1,3 @@
-![pyTorrent logo](pytorrent/static/favicon.svg =100x200)
 # pyTorrent
 
 Modern single-page web UI for managing rTorrent through SCGI/XML-RPC. pyTorrent focuses on fast live updates, multi-profile support, automation, diagnostics and a clean browser-based workflow inspired by ruTorrent.

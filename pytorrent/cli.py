@@ -106,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     token.set_defaults(func=_cmd_revoke_api_token)
 
     icon = sub.add_parser("tracker-favicon", help="Download or refresh a tracker favicon cache file")
-    icon.add_argument("domain", help="Tracker domain, e.g. t.pte.nu")
+    icon.add_argument("domain", help="Tracker domain e.g tracker.example.com")
     icon.add_argument("--no-refresh", action="store_true", help="Use fresh cache when available")
     icon.add_argument("--debug", action="store_true", help="Print cache diagnostics on success or failure")
     icon.set_defaults(func=_cmd_tracker_favicon)

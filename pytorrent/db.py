@@ -4,6 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from .config import DB_PATH
+from .migrations import run_database_migrations
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -84,6 +85,8 @@ CREATE TABLE IF NOT EXISTS profile_preferences (
   port_check_enabled INTEGER DEFAULT 0,
   tracker_favicons_enabled INTEGER DEFAULT 0,
   reverse_dns_enabled INTEGER DEFAULT 0,
+  sidebar_labels_expanded INTEGER DEFAULT 0,
+  sidebar_shortcuts_expanded INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   PRIMARY KEY(user_id, profile_id),
@@ -527,57 +530,8 @@ CREATE TABLE IF NOT EXISTS tracker_favicon_cache (
 
 
 def create_schema(conn: sqlite3.Connection) -> None:
-    """Create the current database schema without running legacy migrations."""
+    """Create the current database schema definition."""
     conn.executescript(SCHEMA)
-
-
-def ensure_profile_scoped_disk_monitor_preferences(conn: sqlite3.Connection) -> None:
-    """Migrate disk monitor settings from user+profile rows to one shared row per profile."""
-    columns = conn.execute("PRAGMA table_info(disk_monitor_preferences)").fetchall()
-    pk_columns = [str(row["name"]) for row in columns if int(row.get("pk") or 0)]
-    if pk_columns == ["profile_id"]:
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_disk_monitor_preferences_owner ON disk_monitor_preferences(user_id)")
-        return
-
-    now = utcnow()
-    conn.execute("DROP INDEX IF EXISTS idx_disk_monitor_preferences_owner")
-    conn.execute("DROP TABLE IF EXISTS disk_monitor_preferences_new")
-    conn.execute("DROP TABLE IF EXISTS disk_monitor_preferences_old_user_profile")
-    conn.execute("""
-        CREATE TABLE disk_monitor_preferences_new (
-          profile_id INTEGER PRIMARY KEY,
-          user_id INTEGER NOT NULL,
-          paths_json TEXT,
-          mode TEXT DEFAULT 'default',
-          selected_path TEXT,
-          stop_enabled INTEGER DEFAULT 0,
-          stop_threshold INTEGER DEFAULT 98,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          FOREIGN KEY(user_id) REFERENCES users(id),
-          FOREIGN KEY(profile_id) REFERENCES rtorrent_profiles(id)
-        )
-    """)
-    conn.execute("""
-        INSERT INTO disk_monitor_preferences_new(
-          profile_id,user_id,paths_json,mode,selected_path,stop_enabled,stop_threshold,created_at,updated_at
-        )
-        SELECT profile_id,user_id,paths_json,mode,selected_path,stop_enabled,stop_threshold,
-               COALESCE(created_at, ?), COALESCE(updated_at, ?)
-        FROM (
-          SELECT d.*,
-                 ROW_NUMBER() OVER (
-                   PARTITION BY profile_id
-                   ORDER BY COALESCE(updated_at, created_at, '') DESC, user_id ASC
-                 ) AS rn
-          FROM disk_monitor_preferences d
-          WHERE profile_id IS NOT NULL
-        )
-        WHERE rn=1
-    """, (now, now))
-    conn.execute("ALTER TABLE disk_monitor_preferences RENAME TO disk_monitor_preferences_old_user_profile")
-    conn.execute("ALTER TABLE disk_monitor_preferences_new RENAME TO disk_monitor_preferences")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_disk_monitor_preferences_owner ON disk_monitor_preferences(user_id)")
 
 
 def seed_default_user(conn: sqlite3.Connection) -> None:
@@ -623,17 +577,14 @@ def connect():
 
 
 def init_db():
-    """Initialize SQLite using the current schema only.
-
-    Note: migration execution is intentionally not part of this flow.
-    """
+    """Initialize SQLite, applying the current schema and idempotent migrations."""
     with connect() as conn:
         try:
             conn.execute("PRAGMA journal_mode = WAL")
         except sqlite3.OperationalError:
             pass
         create_schema(conn)
-        ensure_profile_scoped_disk_monitor_preferences(conn)
+        run_database_migrations(conn)
         seed_default_user(conn)
     try:
         from .services.auth import ensure_admin_user

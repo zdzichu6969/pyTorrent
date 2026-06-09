@@ -108,5 +108,5 @@ LOG_ENABLE = _env_bool("PYTORRENT_LOG_ENABLE", True)
 LOG_DIR = Path(os.getenv("PYTORRENT_LOG_DIR", "data/logs"))
 if not LOG_DIR.is_absolute():
     LOG_DIR = BASE_DIR / LOG_DIR
-SMART_QUEUE_LABEL = os.getenv("PYTORRENT_SMART_QUEUE_L.ABEL", "Smart Queue Stopped")
+SMART_QUEUE_LABEL = os.getenv("PYTORRENT_SMART_QUEUE_LABEL", os.getenv("PYTORRENT_SMART_QUEUE_L.ABEL", "Smart Queue Stopped"))
 SMART_QUEUE_STALLED_LABEL = os.getenv("PYTORRENT_SMART_QUEUE_STALLED_LABEL", "Stalled")

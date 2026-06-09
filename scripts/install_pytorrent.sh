@@ -3,11 +3,11 @@ set -euo pipefail
 
 # Bootstrap installer for pyTorrent only.
 # Intended usage:
-#   curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_pytorrent.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_pytorrent.sh | sudo bash
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     cat <<'USAGE'
-Usage: curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_pytorrent.sh | sudo bash -s -- [options]
+Usage: curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_pytorrent.sh | sudo bash -s -- [options]
 
 This bootstrap downloads pyTorrent and forwards all options to scripts/install_pytorrent_only.sh.
 Run scripts/install_pytorrent_only.sh --help inside the repository for the full option list.
@@ -20,11 +20,23 @@ if [[ "${EUID}" -ne 0 ]]; then
     exit 1
 fi
 
-REPO_URL="${PYTORRENT_REPO_URL:-https://git.linuxiarz.pl/gru/pyTorrent}"
+REPO_URL="${PYTORRENT_REPO_URL:-https://github.com/zdzichu6969/pyTorrent}"
 REPO_BRANCH="${PYTORRENT_REPO_BRANCH:-master}"
 WORK_DIR="${PYTORRENT_BOOTSTRAP_DIR:-/tmp/pytorrent-only-installer}"
 KEEP_WORK_DIR="${PYTORRENT_KEEP_BOOTSTRAP_DIR:-0}"
-ARCHIVE_URL="${PYTORRENT_ARCHIVE_URL:-${REPO_URL%/}/archive/${REPO_BRANCH}.tar.gz}"
+
+default_archive_url() {
+    case "${REPO_URL%/}" in
+        https://github.com/*)
+            printf '%s/archive/refs/heads/%s.tar.gz\n' "${REPO_URL%/}" "${REPO_BRANCH}"
+            ;;
+        *)
+            printf '%s/archive/%s.tar.gz\n' "${REPO_URL%/}" "${REPO_BRANCH}"
+            ;;
+    esac
+}
+
+ARCHIVE_URL="${PYTORRENT_ARCHIVE_URL:-$(default_archive_url)}"
 PROJECT_DIR="${WORK_DIR}/src"
 ARCHIVE_PATH="${WORK_DIR}/pytorrent.tar.gz"
 

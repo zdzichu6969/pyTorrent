@@ -377,7 +377,7 @@ def _seed_profile_preferences(conn, user_id: int, profile_id: int) -> dict:
         return dict(row)
     # Note: First profile preference row is seeded from legacy user-level values so upgrades keep the current layout/filter behavior.
     conn.execute(
-        "INSERT INTO profile_preferences(user_id,profile_id,table_columns_json,torrent_sort_json,active_filter,peers_refresh_seconds,port_check_enabled,tracker_favicons_enabled,reverse_dns_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO profile_preferences(user_id,profile_id,table_columns_json,torrent_sort_json,active_filter,peers_refresh_seconds,port_check_enabled,tracker_favicons_enabled,reverse_dns_enabled,sidebar_labels_expanded,sidebar_shortcuts_expanded,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             user_id,
             profile_id,
@@ -388,6 +388,8 @@ def _seed_profile_preferences(conn, user_id: int, profile_id: int) -> dict:
             int(legacy.get("port_check_enabled") or 0),
             int(legacy.get("tracker_favicons_enabled") or 0),
             int(legacy.get("reverse_dns_enabled") or 0),
+            int(legacy.get("sidebar_labels_expanded") or 0),
+            int(legacy.get("sidebar_shortcuts_expanded") or 0),
             now,
             now,
         ),
@@ -422,6 +424,12 @@ def save_profile_preferences(user_id: int, profile_id: int | None, data: dict) -
         if data.get("reverse_dns_enabled") is not None:
             # Note: Reverse DNS is stored per profile because PTR lookups depend on swarm size and profile network latency.
             updates["reverse_dns_enabled"] = 1 if data.get("reverse_dns_enabled") else 0
+        if data.get("sidebar_labels_expanded") is not None:
+            # Note: Label collapse state is per profile because each rTorrent can have a very different label set.
+            updates["sidebar_labels_expanded"] = 1 if data.get("sidebar_labels_expanded") else 0
+        if data.get("sidebar_shortcuts_expanded") is not None:
+            # Note: Shortcut help visibility is stored with profile preferences to survive refreshes.
+            updates["sidebar_shortcuts_expanded"] = 1 if data.get("sidebar_shortcuts_expanded") else 0
         if data.get("torrent_sort_json") is not None:
             value = data.get("torrent_sort_json") if isinstance(data.get("torrent_sort_json"), str) else json.dumps(data.get("torrent_sort_json"))
             parsed = json.loads(value or "{}")
@@ -440,7 +448,7 @@ def save_profile_preferences(user_id: int, profile_id: int | None, data: dict) -
             value = str(data.get("active_filter") or "all").strip()
             if not value or len(value) > 180:
                 value = "all"
-            allowed_static_filters = {"all", "downloading", "seeding", "paused", "checking", "error", "stopped", "moving"}
+            allowed_static_filters = {"all", "downloading", "seeding", "paused", "checking", "error", "post_check", "stopped", "moving"}
             if value not in allowed_static_filters and not value.startswith("label:") and not value.startswith("tracker:"):
                 value = "all"
             updates["active_filter"] = value
@@ -448,8 +456,8 @@ def save_profile_preferences(user_id: int, profile_id: int | None, data: dict) -
             return
         merged = {**current, **updates}
         conn.execute(
-            "INSERT INTO profile_preferences(user_id,profile_id,table_columns_json,torrent_sort_json,active_filter,peers_refresh_seconds,port_check_enabled,tracker_favicons_enabled,reverse_dns_enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(user_id,profile_id) DO UPDATE SET table_columns_json=excluded.table_columns_json, torrent_sort_json=excluded.torrent_sort_json, active_filter=excluded.active_filter, peers_refresh_seconds=excluded.peers_refresh_seconds, port_check_enabled=excluded.port_check_enabled, tracker_favicons_enabled=excluded.tracker_favicons_enabled, reverse_dns_enabled=excluded.reverse_dns_enabled, updated_at=excluded.updated_at",
+            "INSERT INTO profile_preferences(user_id,profile_id,table_columns_json,torrent_sort_json,active_filter,peers_refresh_seconds,port_check_enabled,tracker_favicons_enabled,reverse_dns_enabled,sidebar_labels_expanded,sidebar_shortcuts_expanded,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(user_id,profile_id) DO UPDATE SET table_columns_json=excluded.table_columns_json, torrent_sort_json=excluded.torrent_sort_json, active_filter=excluded.active_filter, peers_refresh_seconds=excluded.peers_refresh_seconds, port_check_enabled=excluded.port_check_enabled, tracker_favicons_enabled=excluded.tracker_favicons_enabled, reverse_dns_enabled=excluded.reverse_dns_enabled, sidebar_labels_expanded=excluded.sidebar_labels_expanded, sidebar_shortcuts_expanded=excluded.sidebar_shortcuts_expanded, updated_at=excluded.updated_at",
             (
                 user_id,
                 profile_id,
@@ -460,6 +468,8 @@ def save_profile_preferences(user_id: int, profile_id: int | None, data: dict) -
                 int(merged.get("port_check_enabled") or 0),
                 int(merged.get("tracker_favicons_enabled") or 0),
                 int(merged.get("reverse_dns_enabled") or 0),
+                int(merged.get("sidebar_labels_expanded") or 0),
+                int(merged.get("sidebar_shortcuts_expanded") or 0),
                 merged.get("created_at") or now,
                 now,
             ),

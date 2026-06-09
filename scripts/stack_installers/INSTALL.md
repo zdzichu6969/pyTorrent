@@ -12,7 +12,7 @@ The installer is split into two layers:
 Run as root or through `sudo`:
 
 ```bash
-curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_stack.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh | sudo bash
 ```
 
 The bootstrap script downloads the current pyTorrent repository, detects the operating system family, and runs the matching installer:
@@ -46,14 +46,14 @@ Environment variables must be passed to the `sudo bash` process.
 Example:
 
 ```bash
-curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_stack.sh \
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh \
   | sudo PYTORRENT_PORT=8091 RTORRENT_SCGI_PORT=5001 bash
 ```
 
 Another example with a custom profile name:
 
 ```bash
-curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_stack.sh \
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh \
   | sudo PYTORRENT_PROFILE_NAME="Local rTorrent" PYTORRENT_PORT=8090 bash
 ```
 
@@ -63,7 +63,7 @@ These variables are used by `scripts/install_stack.sh`.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `PYTORRENT_REPO_URL` | `https://git.linuxiarz.pl/gru/pyTorrent` | Git repository base URL. |
+| `PYTORRENT_REPO_URL` | `https://github.com/zdzichu6969/pyTorrent` | GitHub repository base URL. |
 | `PYTORRENT_REPO_BRANCH` | `master` | Branch used to download the repository archive. |
 | `PYTORRENT_ARCHIVE_URL` | derived from repo URL and branch | Custom repository archive URL. |
 | `PYTORRENT_BOOTSTRAP_DIR` | `/tmp/pytorrent-stack-installer` | Temporary directory used by the bootstrap script. |
@@ -72,7 +72,7 @@ These variables are used by `scripts/install_stack.sh`.
 Example using a different branch:
 
 ```bash
-curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_stack.sh \
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh \
   | sudo PYTORRENT_REPO_BRANCH=develop bash
 ```
 
@@ -96,14 +96,14 @@ These variables are used by both stack installers.
 Example:
 
 ```bash
-curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_stack.sh \
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh \
   | sudo RTORRENT_USER=rtorrent RTORRENT_SCGI_PORT=5001 RTORRENT_TORRENT_PORT=51400 bash
 ```
 
 Classic xmlrpc-c backend instead of default tinyxml2. On Arch this forces source build:
 
 ```bash
-curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_stack.sh \
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh \
   | sudo RTORRENT_WITH_XMLRPC_C=1 bash
 ```
 
@@ -122,7 +122,7 @@ curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/inst
 Example with API token:
 
 ```bash
-curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_stack.sh \
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh \
   | sudo PYTORRENT_API_TOKEN="pt_xxx" bash
 ```
 

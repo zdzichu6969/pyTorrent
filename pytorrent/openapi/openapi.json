@@ -1178,6 +1178,14 @@
           },
           "tracker_favicons_enabled": {
             "type": "boolean"
+          },
+          "sidebar_labels_expanded": {
+            "description": "Stores whether the sidebar label group is expanded for the active profile.",
+            "type": "boolean"
+          },
+          "sidebar_shortcuts_expanded": {
+            "description": "Stores whether the sidebar keyboard shortcut help is expanded for the active profile.",
+            "type": "boolean"
           }
         },
         "type": "object"

@@ -391,9 +391,8 @@ def _smart_queue_label_cleanup_value(live_label: str | None, previous_label: str
 
 
 def _has_stalled_label(value: str | None) -> bool:
-    # Note: Stalled is treated case-insensitively so manually edited labels still block Smart Queue.
-    target = SMART_QUEUE_STALLED_LABEL.casefold()
-    return any(label.casefold() == target for label in _label_names(value))
+    # Note: Stalled is an exact technical label; lower-case variants are normal user labels.
+    return SMART_QUEUE_STALLED_LABEL in _label_names(value)
 
 
 def _without_queue_technical_labels(value: str | None) -> str:
@@ -403,7 +402,7 @@ def _without_queue_technical_labels(value: str | None) -> str:
 def _ensure_stalled_label(client: Any, torrent_hash: str, current_label: str = '') -> bool:
     labels = [label for label in _label_names(current_label) if label != SMART_QUEUE_LABEL]
     changed = False
-    if not any(label.casefold() == SMART_QUEUE_STALLED_LABEL.casefold() for label in labels):
+    if SMART_QUEUE_STALLED_LABEL not in labels:
         labels.append(SMART_QUEUE_STALLED_LABEL)
         changed = True
     if SMART_QUEUE_LABEL in _label_names(current_label):
@@ -421,13 +420,13 @@ def _ensure_stalled_label(client: Any, torrent_hash: str, current_label: str = '
 def _without_stalled_label(value: str | None) -> str:
     """Return labels without Smart Queue's Stalled marker."""
     # Note: This keeps user labels intact while clearing only the automatic stalled state.
-    return _label_value([label for label in _label_names(value) if label.casefold() != SMART_QUEUE_STALLED_LABEL.casefold()])
+    return _label_value([label for label in _label_names(value) if label != SMART_QUEUE_STALLED_LABEL])
 
 
 def _clear_stalled_label(client: Any, torrent_hash: str, current_label: str = '') -> bool:
     """Remove the Stalled marker from a torrent that is active again."""
     labels = _label_names(current_label)
-    if not any(label.casefold() == SMART_QUEUE_STALLED_LABEL.casefold() for label in labels):
+    if SMART_QUEUE_STALLED_LABEL not in labels:
         return False
     try:
         # Note: Active downloads must not keep the Stalled marker after they resume transferring.

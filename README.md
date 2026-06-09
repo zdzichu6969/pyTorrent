@@ -4,6 +4,45 @@ Modern single-page web UI for managing rTorrent through SCGI/XML-RPC. pyTorrent 
 
 > pyTorrent is a controller for your own rTorrent instance. It does not include a BitTorrent engine and does not bypass tracker, copyright or network rules.
 
+## Install pyTorrent only - recommended first path
+
+Use this when rTorrent already exists and only the pyTorrent web UI should be installed. The installer creates the pyTorrent service, virtualenv, `.env`, database and a default rTorrent profile. It does **not** install or reconfigure rTorrent.
+
+Supported systems for `scripts/install_pytorrent_only.sh`:
+
+- Debian / Ubuntu
+- RHEL-compatible distributions: RHEL, Rocky Linux, AlmaLinux, CentOS Stream and Fedora-like systems with `dnf` or `yum`
+- Arch Linux
+
+One-line install from the repository:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_pytorrent.sh | sudo bash
+```
+
+Local install after cloning:
+
+```bash
+git clone https://github.com/zdzichu6969/pyTorrent.git
+cd pyTorrent
+sudo bash scripts/install_pytorrent_only.sh
+```
+
+Non-interactive example for an existing rTorrent SCGI endpoint:
+
+```bash
+sudo bash scripts/install_pytorrent_only.sh \
+  --yes \
+  --port 8090 \
+  --scgi-url scgi://127.0.0.1:5000 \
+  --auth enable \
+  --auth-provider local \
+  --auth-user pytorrent \
+  --auth-password 'change-this-password'
+```
+
+Optional full stack install is described below. Use it only when the server should install and configure rTorrent together with pyTorrent.
+
 ## Highlights
 
 - Live torrent table with WebSocket updates and patch-based refreshes.
@@ -36,9 +75,9 @@ Modern single-page web UI for managing rTorrent through SCGI/XML-RPC. pyTorrent 
 
 The project uses Flask, Flask-SocketIO, python-dotenv, psutil, geoip2, gunicorn and related runtime dependencies listed in `requirements.txt`.
 
-## Quick start
+## Manual development quick start
 
-Clone the repository and run the local installer:
+Clone the repository and run the local development installer:
 
 ```bash
 git clone https://github.com/zdzichu6969/pyTorrent.git
@@ -76,9 +115,9 @@ network.scgi.open_port = 127.0.0.1:5000
 
 For production, keep SCGI bound to localhost or a private trusted network only.
 
-## Stack installer
+## Optional stack installer
 
-The repository includes a stack installer for a clean server. It can install and configure rTorrent + pyTorrent together.
+The repository also includes a stack installer for a clean server. It can install and configure rTorrent + pyTorrent together.
 
 Supported systems:
 
@@ -103,10 +142,10 @@ The default stack install creates:
 | pyTorrent HTTP port | `8090` |
 | pyTorrent service | `pytorrent` |
 
-### One-line install with rtorrent
+### Optional one-line full stack install with rTorrent
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/main/scripts/install_stack.sh \
+curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh \
   | PYTORRENT_PORT=8091 \
     RTORRENT_SCGI_PORT=5001 \
     PYTORRENT_PROFILE_NAME="Local rTorrent" \

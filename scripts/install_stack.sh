@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Bootstrap installer for pyTorrent + rTorrent.
 # Intended usage from a clean server:
-#   curl -fsSL https://git.linuxiarz.pl/gru/pyTorrent/raw/branch/master/scripts/install_stack.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh | sudo bash
 #
 # The script downloads the current pyTorrent repository, detects the OS family,
 # and runs the matching installer from scripts/stack_installers/.
@@ -13,13 +13,37 @@ if [[ "${EUID}" -ne 0 ]]; then
     exit 1
 fi
 
-REPO_URL="${PYTORRENT_REPO_URL:-https://git.linuxiarz.pl/gru/pyTorrent}"
+REPO_URL="${PYTORRENT_REPO_URL:-https://github.com/zdzichu6969/pyTorrent}"
 REPO_BRANCH="${PYTORRENT_REPO_BRANCH:-master}"
 WORK_DIR="${PYTORRENT_BOOTSTRAP_DIR:-/tmp/pytorrent-stack-installer}"
 KEEP_WORK_DIR="${PYTORRENT_KEEP_BOOTSTRAP_DIR:-0}"
 
-RAW_BASE="${REPO_URL%/}/raw/branch/${REPO_BRANCH}"
-ARCHIVE_URL="${PYTORRENT_ARCHIVE_URL:-${REPO_URL%/}/archive/${REPO_BRANCH}.tar.gz}"
+default_archive_url() {
+    case "${REPO_URL%/}" in
+        https://github.com/*)
+            printf '%s/archive/refs/heads/%s.tar.gz\n' "${REPO_URL%/}" "${REPO_BRANCH}"
+            ;;
+        *)
+            printf '%s/archive/%s.tar.gz\n' "${REPO_URL%/}" "${REPO_BRANCH}"
+            ;;
+    esac
+}
+
+default_raw_base() {
+    case "${REPO_URL%/}" in
+        https://github.com/*)
+            local path
+            path="${REPO_URL#https://github.com/}"
+            printf 'https://raw.githubusercontent.com/%s/%s\n' "${path%/}" "${REPO_BRANCH}"
+            ;;
+        *)
+            printf '%s/raw/branch/%s\n' "${REPO_URL%/}" "${REPO_BRANCH}"
+            ;;
+    esac
+}
+
+RAW_BASE="${PYTORRENT_RAW_BASE:-$(default_raw_base)}"
+ARCHIVE_URL="${PYTORRENT_ARCHIVE_URL:-$(default_archive_url)}"
 PROJECT_DIR="${WORK_DIR}/src"
 ARCHIVE_PATH="${WORK_DIR}/pytorrent.tar.gz"
 
@@ -142,7 +166,7 @@ if ! download_file "${ARCHIVE_URL}" "${ARCHIVE_PATH}"; then
         install_rtorrent.py \
         install_rtorrent_rhel.py \
         configure_pytorrent_api.py \
-        INSTALL_STACK.md
+        INSTALL.md
     do
         download_file "${RAW_BASE}/scripts/stack_installers/${file}" "${PROJECT_DIR}/scripts/stack_installers/${file}"
     done

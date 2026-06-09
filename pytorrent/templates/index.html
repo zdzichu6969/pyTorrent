@@ -78,17 +78,22 @@
       <div id="labelFilters" class="label-filters mt-2"></div>
       <div id="trackerFilters" class="tracker-filters mt-2"></div>
       <hr>
-      <div class="small text-muted px-2">Shortcuts</div>
-      <div class="shortcut">Ctrl+A — select visible</div>
-      <div class="shortcut">Ctrl+I — invert visible</div>
-      <div class="shortcut">Space — start</div>
-      <div class="shortcut">P — pause</div>
-      <div class="shortcut">S — stop</div>
-      <div class="shortcut">R — resume</div>
-      <div class="shortcut">M — move</div>
-      <div class="shortcut">Esc — clear selection</div>
-      <div class="shortcut">Delete — remove</div>
-      <div class="shortcut">Ctrl+O — add</div><div class="shortcut">Ctrl+S — download .torrent</div>
+      <div class="small text-muted px-2 mb-1">Shortcuts</div>
+      <button id="shortcutToggle" class="sidebar-collapse-toggle" type="button" aria-expanded="false"><span><i class="fa-solid fa-chevron-down"></i> Show shortcuts</span><span>11</span></button>
+      <div id="shortcutList" class="sidebar-collapsible is-collapsed">
+        <!-- Note: Keyboard shortcut help is collapsed by default and persisted with the profile sidebar preferences. -->
+        <div class="shortcut">Ctrl+A — select visible</div>
+        <div class="shortcut">Ctrl+I — invert visible</div>
+        <div class="shortcut">Space — start</div>
+        <div class="shortcut">P — pause</div>
+        <div class="shortcut">S — stop</div>
+        <div class="shortcut">R — resume</div>
+        <div class="shortcut">M — move</div>
+        <div class="shortcut">Esc — clear selection</div>
+        <div class="shortcut">Delete — remove</div>
+        <div class="shortcut">Ctrl+O — add</div>
+        <div class="shortcut">Ctrl+S — download .torrent</div>
+      </div>
     </aside>
 
     <section class="content">
@@ -407,7 +412,7 @@
 <div id="toastHost" class="toast-host"></div>
 <script src="{{ frontend_asset_url('socket_io_js') }}"></script>
 <script src="{{ frontend_asset_url('bootstrap_js') }}"></script>
-<script>window.PYTORRENT = {authEnabled: {{ 1 if auth_enabled else 0 }}, authProvider: {{ auth_provider | tojson }}, externalAuth: {{ 1 if external_auth else 0 }}, currentUser: {% if current_user %}{{ current_user | tojson }}{% else %}null{% endif %}, activeProfile: {{ active_profile.id if active_profile else 'null' }}, tableColumns: {{ (prefs.table_columns_json or '{}') | safe }}, torrentSort: {{ (prefs.torrent_sort_json or '{}') | safe }}, activeFilter: {{ (prefs.active_filter if prefs and prefs.active_filter else 'all') | tojson }}, detailPanelHeight: {{ prefs.detail_panel_height if prefs and prefs.detail_panel_height else 255 }}, peersRefreshSeconds: {{ prefs.peers_refresh_seconds if prefs else 0 }}, portCheckEnabled: {{ 1 if prefs and prefs.port_check_enabled else 0 }}, interfaceScale: {{ prefs.interface_scale if prefs and prefs.interface_scale else 100 }}, torrentListFontSize: {{ prefs.torrent_list_font_size if prefs and prefs.torrent_list_font_size else 13 }}, compactTorrentListEnabled: {{ 1 if prefs and prefs.compact_torrent_list_enabled else 0 }}, titleSpeedEnabled: {{ 1 if prefs and prefs.title_speed_enabled else 0 }}, trackerFaviconsEnabled: {{ 1 if prefs and prefs.tracker_favicons_enabled else 0 }}, reverseDnsEnabled: {{ 1 if prefs and prefs.reverse_dns_enabled else 0 }}, automationToastsEnabled: {{ 1 if not prefs or prefs.automation_toasts_enabled else 0 }}, smartQueueToastsEnabled: {{ 1 if not prefs or prefs.smart_queue_toasts_enabled else 0 }}, diskMonitorPaths: {{ (prefs.disk_monitor_paths_json or "[]") | safe }}, diskMonitorMode: {{ (prefs.disk_monitor_mode if prefs and prefs.disk_monitor_mode else "default") | tojson }}, diskMonitorSelectedPath: {{ (prefs.disk_monitor_selected_path if prefs and prefs.disk_monitor_selected_path else "") | tojson }}, diskMonitorOwnerLabel: {{ (prefs.disk_monitor_owner_label if prefs and prefs.disk_monitor_owner_label else "") | tojson }}, bootstrapTheme: {{ (prefs.bootstrap_theme if prefs and prefs.bootstrap_theme else 'default') | tojson }}, fontFamily: {{ (prefs.font_family if prefs and prefs.font_family else 'default') | tojson }}, footerItems: {{ (prefs.footer_items_json or '{}') | safe }}, easterEggEnabled: {{ 1 if prefs and prefs.easter_egg_enabled else 0 }}, easterEggLoadingImageUrl: {{ (prefs.easter_egg_loading_image_url if prefs and prefs.easter_egg_loading_image_url else '') | tojson }}, easterEggClickImageUrl: {{ (prefs.easter_egg_click_image_url if prefs and prefs.easter_egg_click_image_url else '') | tojson }}, bootstrapThemes: {{ bootstrap_themes | tojson }}, bootstrapThemeUrls: { {% for key in bootstrap_themes.keys() %}{{ key | tojson }}: {{ bootstrap_theme_url(key) | tojson }}{% if not loop.last %}, {% endif %}{% endfor %} }, fontFamilies: {{ font_families | tojson }}, staticHash: {{ static_hash() | tojson }}};</script>
+<script>window.PYTORRENT = {authEnabled: {{ 1 if auth_enabled else 0 }}, authProvider: {{ auth_provider | tojson }}, externalAuth: {{ 1 if external_auth else 0 }}, currentUser: {% if current_user %}{{ current_user | tojson }}{% else %}null{% endif %}, activeProfile: {{ active_profile.id if active_profile else 'null' }}, tableColumns: {{ (prefs.table_columns_json or '{}') | safe }}, torrentSort: {{ (prefs.torrent_sort_json or '{}') | safe }}, activeFilter: {{ (prefs.active_filter if prefs and prefs.active_filter else 'all') | tojson }}, detailPanelHeight: {{ prefs.detail_panel_height if prefs and prefs.detail_panel_height else 255 }}, peersRefreshSeconds: {{ prefs.peers_refresh_seconds if prefs else 0 }}, portCheckEnabled: {{ 1 if prefs and prefs.port_check_enabled else 0 }}, interfaceScale: {{ prefs.interface_scale if prefs and prefs.interface_scale else 100 }}, torrentListFontSize: {{ prefs.torrent_list_font_size if prefs and prefs.torrent_list_font_size else 13 }}, compactTorrentListEnabled: {{ 1 if prefs and prefs.compact_torrent_list_enabled else 0 }}, titleSpeedEnabled: {{ 1 if prefs and prefs.title_speed_enabled else 0 }}, trackerFaviconsEnabled: {{ 1 if prefs and prefs.tracker_favicons_enabled else 0 }}, reverseDnsEnabled: {{ 1 if prefs and prefs.reverse_dns_enabled else 0 }}, automationToastsEnabled: {{ 1 if not prefs or prefs.automation_toasts_enabled else 0 }}, smartQueueToastsEnabled: {{ 1 if not prefs or prefs.smart_queue_toasts_enabled else 0 }}, diskMonitorPaths: {{ (prefs.disk_monitor_paths_json or "[]") | safe }}, diskMonitorMode: {{ (prefs.disk_monitor_mode if prefs and prefs.disk_monitor_mode else "default") | tojson }}, diskMonitorSelectedPath: {{ (prefs.disk_monitor_selected_path if prefs and prefs.disk_monitor_selected_path else "") | tojson }}, diskMonitorOwnerLabel: {{ (prefs.disk_monitor_owner_label if prefs and prefs.disk_monitor_owner_label else "") | tojson }}, bootstrapTheme: {{ (prefs.bootstrap_theme if prefs and prefs.bootstrap_theme else 'default') | tojson }}, fontFamily: {{ (prefs.font_family if prefs and prefs.font_family else 'default') | tojson }}, footerItems: {{ (prefs.footer_items_json or '{}') | safe }}, easterEggEnabled: {{ 1 if prefs and prefs.easter_egg_enabled else 0 }}, easterEggLoadingImageUrl: {{ (prefs.easter_egg_loading_image_url if prefs and prefs.easter_egg_loading_image_url else '') | tojson }}, easterEggClickImageUrl: {{ (prefs.easter_egg_click_image_url if prefs and prefs.easter_egg_click_image_url else '') | tojson }}, bootstrapThemes: {{ bootstrap_themes | tojson }}, bootstrapThemeUrls: { {% for key in bootstrap_themes.keys() %}{{ key | tojson }}: {{ bootstrap_theme_url(key) | tojson }}{% if not loop.last %}, {% endif %}{% endfor %} }, fontFamilies: {{ font_families | tojson }}, staticHash: {{ static_hash() | tojson }}, smartQueueTechnicalLabel: {{ smart_queue_label | tojson }}, smartQueueStalledLabel: {{ smart_queue_stalled_label | tojson }}, sidebarLabelsExpanded: {{ 1 if prefs and prefs.sidebar_labels_expanded else 0 }}, sidebarShortcutsExpanded: {{ 1 if prefs and prefs.sidebar_shortcuts_expanded else 0 }}};</script>
 <!-- Rollback: uncomment the legacy include below and comment the module include. -->
 <!-- <script src="{{ static_url('app.js') }}"></script> -->
 <script type="module" src="{{ static_url('js/app.js') }}"></script>

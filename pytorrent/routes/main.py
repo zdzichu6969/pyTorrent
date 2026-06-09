@@ -10,7 +10,7 @@ import zipfile
 from flask import Blueprint, render_template, Response, request, redirect, url_for, abort, send_file, stream_with_context
 from ..services.preferences import get_preferences, list_profiles, active_profile, get_profile, BOOTSTRAP_THEMES, FONT_FAMILIES
 from ..services import auth, pdf_preview_links, rtorrent
-from ..config import PYTORRENT_TMP_DIR
+from ..config import PYTORRENT_TMP_DIR, SMART_QUEUE_LABEL, SMART_QUEUE_STALLED_LABEL
 from ..services.frontend_assets import asset_path
 
 # for favicon
@@ -218,6 +218,8 @@ def index():
         auth_provider=auth.provider(),
         external_auth=auth.uses_external_provider(),
         current_user=auth.current_user(),
+        smart_queue_label=SMART_QUEUE_LABEL,
+        smart_queue_stalled_label=SMART_QUEUE_STALLED_LABEL,
     )
 
 

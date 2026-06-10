@@ -3200,6 +3200,234 @@
         "summary": "Create backup"
       }
     },
+    "/api/backup/app": {
+      "post": {
+        "summary": "Create application backup",
+        "description": "Creates an application-level backup for admin users. Note: this endpoint is additive and does not change the legacy /api/backup behavior.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupCreateInput"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiOk"
+                    },
+                    {
+                      "properties": {
+                        "backup": {
+                          "$ref": "#/components/schemas/Backup"
+                        },
+                        "profile_backups": {
+                          "items": {
+                            "$ref": "#/components/schemas/Backup"
+                          },
+                          "type": "array"
+                        },
+                        "app_backups": {
+                          "items": {
+                            "$ref": "#/components/schemas/Backup"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/backup/profile": {
+      "post": {
+        "summary": "Create profile backup",
+        "description": "Creates a backup for the currently active rTorrent profile. Note: this endpoint keeps application-level backups separate from profile backups.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackupCreateInput"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiOk"
+                    },
+                    {
+                      "properties": {
+                        "backup": {
+                          "$ref": "#/components/schemas/Backup"
+                        },
+                        "profile_backups": {
+                          "items": {
+                            "$ref": "#/components/schemas/Backup"
+                          },
+                          "type": "array"
+                        },
+                        "app_backups": {
+                          "items": {
+                            "$ref": "#/components/schemas/Backup"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/backup/profile/settings": {
+      "get": {
+        "summary": "Get profile automatic backup settings",
+        "description": "Returns automatic backup settings for the active profile. Note: this mirrors the profile-scoped backup UI controls.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoBackupSettingsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Save profile automatic backup settings",
+        "description": "Saves automatic backup settings for the active profile. Note: application backup settings remain unchanged.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoBackupSettingsRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AutoBackupSettingsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/backup/settings": {
       "get": {
         "responses": {
@@ -3539,6 +3767,81 @@
         "summary": "Clear active profile cache"
       }
     },
+    "/api/cleanup/database/vacuum": {
+      "post": {
+        "summary": "Vacuum application database",
+        "description": "Runs SQLite database vacuum/maintenance for admin users. Note: the cleanup summary is returned with the result.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "force": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiOk"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "vacuum": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "cleanup": {
+                          "$ref": "#/components/schemas/CleanupSummary"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Vacuum result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/cleanup/jobs": {
       "post": {
         "responses": {
@@ -3615,6 +3918,52 @@
           }
         ],
         "summary": "Clear Planner action history"
+      }
+    },
+    "/api/cleanup/poller-diagnostics": {
+      "post": {
+        "summary": "Reset poller diagnostics",
+        "description": "Clears in-memory poller runtime counters for the active profile. Note: polling settings and torrent state are preserved.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/CleanupResponse"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "runtime": {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Cleanup result"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     },
     "/api/cleanup/smart-queue": {
@@ -5948,6 +6297,40 @@
         "summary": "Queue global speed limit change"
       }
     },
+    "/api/static_hash": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Get current frontend JS/CSS hash",
+        "description": "Returns the startup-computed hash for app JavaScript and CSS assets. The value is kept in memory and returned without scanning static files per request.",
+        "responses": {
+          "200": {
+            "description": "Static asset hash",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "static_hash": {
+                      "type": "string",
+                      "description": "Short SHA-256-based hash of frontend JavaScript and CSS files computed once at app startup."
+                    },
+                    "version": {
+                      "type": "string",
+                      "description": "Alias of static_hash for simple client version checks."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/system/disk": {
       "get": {
         "responses": {
@@ -6317,6 +6700,55 @@
         "summary": "Export selected torrent files as ZIP"
       }
     },
+    "/api/torrents/torrent-files.zip/link": {
+      "post": {
+        "summary": "Create temporary .torrent files ZIP download link",
+        "description": "Validates selected torrents and returns a short-lived /download URL for a ZIP of exported .torrent files.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "hashes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "hashes"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/torrents/{action_name}": {
       "post": {
         "description": "For move, path is the target directory; move_data=true physically moves data on the rTorrent host using a detached shell move with status polling. Large move/remove selections are split into ordered bulk parts of up to 100 hashes.",
@@ -6568,6 +7000,62 @@
         "summary": "Torrent files"
       }
     },
+    "/api/torrents/{torrent_hash}/files/download-link": {
+      "post": {
+        "summary": "Create temporary torrent file download link from body",
+        "description": "Body-based alias that validates a selected torrent file and returns a short-lived /download URL.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "torrent_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file_index": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "file_index"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/torrents/{torrent_hash}/files/download.zip": {
       "post": {
         "parameters": [
@@ -6603,6 +7091,63 @@
           }
         },
         "summary": "Download selected files as ZIP"
+      }
+    },
+    "/api/torrents/{torrent_hash}/files/download.zip/link": {
+      "post": {
+        "summary": "Create temporary torrent files ZIP download link",
+        "description": "Validates selected torrent files and returns a short-lived /download URL for a ZIP archive. If indexes is omitted or null, all files are included.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "torrent_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "indexes": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/torrents/{torrent_hash}/files/folder-priority": {
@@ -6766,6 +7311,116 @@
         "summary": "Download torrent file"
       }
     },
+    "/api/torrents/{torrent_hash}/files/{file_index}/download-link": {
+      "post": {
+        "summary": "Create temporary torrent file download link",
+        "description": "Validates the selected torrent file through the API and returns a short-lived /download URL for the UI.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "torrent_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_index",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/torrents/{torrent_hash}/files/{file_index}/mediainfo": {
+      "get": {
+        "summary": "Get torrent file media info",
+        "description": "Returns lightweight media information for a torrent file and may include a temporary in-app PDF preview URL. Note: this documents the existing additive media-info endpoint.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "torrent_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_index",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiOk"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "media_info": {
+                          "type": "object",
+                          "additionalProperties": true
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
     "/api/torrents/{torrent_hash}/peers": {
       "get": {
         "parameters": [
@@ -6833,6 +7488,44 @@
           }
         },
         "summary": "Export torrent file"
+      }
+    },
+    "/api/torrents/{torrent_hash}/torrent-file/link": {
+      "get": {
+        "summary": "Create temporary .torrent export download link",
+        "description": "Validates .torrent export availability and returns a short-lived /download URL for the UI.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "torrent_hash",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemporaryLinkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/torrents/{torrent_hash}/trackers": {
@@ -7146,55 +7839,6 @@
         "summary": "Traffic history"
       }
     },
-    "/preview/pdf/{token}": {
-      "get": {
-        "summary": "Open temporary PDF preview",
-        "description": "Streams a PDF through an in-app temporary preview URL created by the API. The browser-visible URL does not expose the stable /api download route.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "PDF stream",
-            "content": {
-              "application/pdf": {
-                "schema": {
-                  "type": "string",
-                  "format": "binary"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/download/{token}": {
       "get": {
         "summary": "Open temporary download link",
@@ -7256,173 +7900,14 @@
         }
       }
     },
-    "/api/torrents/{torrent_hash}/files/{file_index}/download-link": {
-      "post": {
-        "summary": "Create temporary torrent file download link",
-        "description": "Validates the selected torrent file through the API and returns a short-lived /download URL for the UI.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "torrent_hash",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "file_index",
-            "required": true,
-            "schema": {
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TemporaryLinkResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/torrents/{torrent_hash}/files/download-link": {
-      "post": {
-        "summary": "Create temporary torrent file download link from body",
-        "description": "Body-based alias that validates a selected torrent file and returns a short-lived /download URL.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "torrent_hash",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "file_index": {
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "file_index"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TemporaryLinkResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/torrents/{torrent_hash}/files/download.zip/link": {
-      "post": {
-        "summary": "Create temporary torrent files ZIP download link",
-        "description": "Validates selected torrent files and returns a short-lived /download URL for a ZIP archive. If indexes is omitted or null, all files are included.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "torrent_hash",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "indexes": {
-                    "type": "array",
-                    "items": {
-                      "type": "integer"
-                    },
-                    "nullable": true
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TemporaryLinkResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/torrents/{torrent_hash}/torrent-file/link": {
+    "/preview/pdf/{token}": {
       "get": {
-        "summary": "Create temporary .torrent export download link",
-        "description": "Validates .torrent export availability and returns a short-lived /download URL for the UI.",
+        "summary": "Open temporary PDF preview",
+        "description": "Streams a PDF through an in-app temporary preview URL created by the API. The browser-visible URL does not expose the stable /api download route.",
         "parameters": [
           {
             "in": "path",
-            "name": "torrent_hash",
+            "name": "token",
             "required": true,
             "schema": {
               "type": "string"
@@ -7431,16 +7916,17 @@
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "PDF stream",
             "content": {
-              "application/json": {
+              "application/pdf": {
                 "schema": {
-                  "$ref": "#/components/schemas/TemporaryLinkResponse"
+                  "type": "string",
+                  "format": "binary"
                 }
               }
             }
           },
-          "400": {
+          "403": {
             "description": "Error",
             "content": {
               "application/json": {
@@ -7449,86 +7935,13 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/api/torrents/torrent-files.zip/link": {
-      "post": {
-        "summary": "Create temporary .torrent files ZIP download link",
-        "description": "Validates selected torrents and returns a short-lived /download URL for a ZIP of exported .torrent files.",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "hashes": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "required": [
-                  "hashes"
-                ]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TemporaryLinkResponse"
-                }
-              }
-            }
           },
-          "400": {
+          "404": {
             "description": "Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/static_hash": {
-      "get": {
-        "tags": [
-          "System"
-        ],
-        "summary": "Get current frontend JS/CSS hash",
-        "description": "Returns the startup-computed hash for app JavaScript and CSS assets. The value is kept in memory and returned without scanning static files per request.",
-        "responses": {
-          "200": {
-            "description": "Static asset hash",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean"
-                    },
-                    "static_hash": {
-                      "type": "string",
-                      "description": "Short SHA-256-based hash of frontend JavaScript and CSS files computed once at app startup."
-                    },
-                    "version": {
-                      "type": "string",
-                      "description": "Alias of static_hash for simple client version checks."
-                    }
-                  }
                 }
               }
             }

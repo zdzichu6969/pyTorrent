@@ -95,9 +95,48 @@ def migrate_profile_preferences_sidebar_columns(conn: sqlite3.Connection) -> boo
     return changed
 
 
+def migrate_operation_log_split_retention(conn: sqlite3.Connection) -> bool:
+    columns = _column_names(conn, "operation_log_settings")
+    changed = False
+    additions = {
+        "retention_interval_hours": "INTEGER DEFAULT 24",
+        "job_retention_mode": "TEXT DEFAULT 'days'",
+        "job_retention_days": "INTEGER DEFAULT 7",
+        "job_retention_lines": "INTEGER DEFAULT 2000",
+        "job_retention_interval_hours": "INTEGER DEFAULT 24",
+        "job_last_retention_run_at": "TEXT",
+        "job_last_retention_deleted": "INTEGER DEFAULT 0",
+        "operation_retention_mode": "TEXT DEFAULT 'days'",
+        "operation_retention_days": "INTEGER DEFAULT 30",
+        "operation_retention_lines": "INTEGER DEFAULT 5000",
+        "operation_retention_interval_hours": "INTEGER DEFAULT 24",
+        "operation_last_retention_run_at": "TEXT",
+        "operation_last_retention_deleted": "INTEGER DEFAULT 0",
+    }
+    for name, ddl in additions.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE operation_log_settings ADD COLUMN {name} {ddl}")
+            changed = True
+    if changed:
+        conn.execute("""
+            UPDATE operation_log_settings
+            SET operation_retention_mode=COALESCE(operation_retention_mode, retention_mode, 'days'),
+                operation_retention_days=COALESCE(operation_retention_days, retention_days, 30),
+                operation_retention_lines=COALESCE(operation_retention_lines, retention_lines, 5000),
+                operation_retention_interval_hours=COALESCE(operation_retention_interval_hours, retention_interval_hours, 24),
+                job_retention_mode=COALESCE(job_retention_mode, 'days'),
+                job_retention_days=COALESCE(job_retention_days, 7),
+                job_retention_lines=COALESCE(job_retention_lines, 2000),
+                job_retention_interval_hours=COALESCE(job_retention_interval_hours, retention_interval_hours, 24),
+                updated_at=COALESCE(updated_at, ?)
+        """, (_utcnow(),))
+    return changed
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     migrate_disk_monitor_preferences_to_profile_scope,
     migrate_profile_preferences_sidebar_columns,
+    migrate_operation_log_split_retention,
 )
 
 

@@ -249,13 +249,17 @@ def _safe_len(callable_obj) -> int | None:
     except Exception:
         return None
 
-def _table_count(table: str, where: str = "", params: tuple = ()) -> int:
-    with connect() as conn:
-        exists = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
-        if not exists:
-            return 0
-        row = conn.execute(f"SELECT COUNT(*) AS n FROM {table} {where}", params).fetchone()
-    return int((row or {}).get("n") or 0)
+def _table_count(table: str, where: str = "", params: tuple = (), conn=None) -> int:
+    """Count rows with one SQL statement; schema-created tables do not need a sqlite_master pre-check."""
+    try:
+        if conn is None:
+            with connect() as owned_conn:
+                row = owned_conn.execute(f"SELECT COUNT(*) AS n FROM {table} {where}", params).fetchone()
+        else:
+            row = conn.execute(f"SELECT COUNT(*) AS n FROM {table} {where}", params).fetchone()
+        return int((row or {}).get("n") or 0)
+    except Exception:
+        return 0
 
 
 def _db_size() -> dict:
@@ -269,13 +273,13 @@ def _db_size() -> dict:
         return {"path": str(DB_PATH), "size": size, "size_h": rtorrent.human_size(size), "error": str(exc)}
 
 
-def _active_profile_cache_summary(profile_id: int | None = None) -> dict:
+def _active_profile_cache_summary(profile_id: int | None = None, conn=None) -> dict:
     profile = preferences.active_profile() if profile_id is None else {"id": profile_id}
     profile_id = int((profile or {}).get("id") or 0)
     if not profile_id:
         return {"profile_id": 0, "profile_rows": 0, "runtime_items": 0}
-    tracker_rows = _table_count("tracker_summary_cache", "WHERE profile_id=?", (profile_id,))
-    stats_rows = _table_count("torrent_stats_cache", "WHERE profile_id=?", (profile_id,))
+    tracker_rows = _table_count("tracker_summary_cache", "WHERE profile_id=?", (profile_id,), conn=conn)
+    stats_rows = _table_count("torrent_stats_cache", "WHERE profile_id=?", (profile_id,), conn=conn)
     runtime_items = 0
     try:
         runtime_items += len(torrent_cache.snapshot(profile_id))
@@ -287,21 +291,28 @@ def _active_profile_cache_summary(profile_id: int | None = None) -> dict:
 def cleanup_summary() -> dict:
     active_profile = preferences.active_profile()
     profile_id = int((active_profile or {}).get("id") or 0)
-    operation_logs_total = _table_count(
-        "operation_logs",
-        "WHERE profile_id=? OR profile_id IS NULL",
-        (profile_id,),
-    ) if profile_id else _table_count("operation_logs")
+    with connect() as conn:
+        operation_logs_total = _table_count(
+            "operation_logs",
+            "WHERE profile_id=? OR profile_id IS NULL",
+            (profile_id,),
+            conn=conn,
+        ) if profile_id else _table_count("operation_logs", conn=conn)
+        jobs_total = _table_count("jobs", conn=conn)
+        jobs_clearable = _table_count("jobs", "WHERE status NOT IN ('pending', 'running')", conn=conn)
+        smart_queue_history_total = _table_count("smart_queue_history", conn=conn)
+        automation_history_total = _table_count("automation_history", conn=conn)
+        cache_summary = _active_profile_cache_summary(profile_id if profile_id else None, conn=conn)
     operation_log_retention = operation_logs.get_settings(profile_id) if profile_id else operation_logs.get_settings(0)
     poller_runtime = poller_control.snapshot(profile_id) if profile_id else {}
     return {
-        "jobs_total": _table_count("jobs"),
-        "jobs_clearable": _table_count("jobs", "WHERE status NOT IN ('pending', 'running')"),
-        "smart_queue_history_total": _table_count("smart_queue_history"),
+        "jobs_total": jobs_total,
+        "jobs_clearable": jobs_clearable,
+        "smart_queue_history_total": smart_queue_history_total,
         "operation_logs_total": operation_logs_total,
-        "automation_history_total": _table_count("automation_history"),
+        "automation_history_total": automation_history_total,
         "planner_history_total": download_planner.history_count(profile_id) if profile_id else 0,
-        "cache": _active_profile_cache_summary(profile_id if profile_id else None),
+        "cache": cache_summary,
         "poller_runtime": poller_runtime,
         "retention_days": {
             "jobs": JOBS_RETENTION_DAYS,

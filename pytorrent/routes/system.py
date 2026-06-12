@@ -86,6 +86,7 @@ def app_status():
         jobs_total = jobs.get("total", 0)
     except Exception:
         jobs_total = 0
+    include_cleanup = str(request.args.get("cleanup") or "").lower() in {"1", "true", "yes", "on"}
     status = {
         "pytorrent": {
             "ok": True,
@@ -103,10 +104,11 @@ def app_status():
             "open_files": _safe_len(proc.open_files) if hasattr(proc, "open_files") else None,
             "connections": _safe_len(lambda: proc.net_connections(kind="inet")) if hasattr(proc, "net_connections") else None,
         },
-        "cleanup": cleanup_summary(),
         "profile": profile,
         "scgi": None,
     }
+    if include_cleanup:
+        status["cleanup"] = cleanup_summary()
     if profile:
         try:
             status["scgi"] = rtorrent.scgi_diagnostics(profile)

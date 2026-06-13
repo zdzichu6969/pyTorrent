@@ -474,25 +474,68 @@ def build_rtorrent(base_dir, rtorrent_ref, libtorrent_install, rpc_backend, xmlr
 
     prefixes = [libtorrent_install]
     xmlrpc_config = None
+
     if rpc_backend == "xmlrpc-c":
         xmlrpc_config = find_xmlrpc_config(base_dir, xmlrpc_install)
         if not xmlrpc_config:
             raise InstallError(f"Could not find custom xmlrpc-c-config under {base_dir}.")
         if not str(xmlrpc_config).startswith(str(Path(xmlrpc_install).resolve())):
             raise InstallError(f"Wrong xmlrpc-c-config selected: {xmlrpc_config}. Expected one under: {xmlrpc_install}")
+
         verify_xmlrpc_environment(xmlrpc_config, debug=debug)
         prefixes.append(xmlrpc_install)
-    elif rpc_backend != "tinyxml2":
+
+    elif rpc_backend == "tinyxml2":
+        # Debian 13 / newer toolchains may not automatically propagate tinyxml2
+        # linker flags from configure into the final rTorrent binary.
+        # Force pkg-config flags into the build environment.
+        pkg_config = shutil.which("pkg-config")
+        if not pkg_config:
+            raise InstallError("pkg-config is required for tinyxml2 backend. Install it with: apt-get install -y pkg-config")
+
+        tinyxml2_exists = run(
+            ["pkg-config", "--exists", "tinyxml2"],
+            check=False,
+            debug=debug,
+            capture_output=True,
+        )
+        if tinyxml2_exists.returncode != 0:
+            raise InstallError("tinyxml2 development files not found. Install them with: apt-get install -y libtinyxml2-dev")
+
+    else:
         raise InstallError(f"Unsupported RPC backend: {rpc_backend}")
 
     if curl_install:
         prefixes.append(curl_install)
     if cares_install:
         prefixes.append(cares_install)
+
     env = build_env(*prefixes)
+
     if xmlrpc_config:
         env["PATH"] = f"{xmlrpc_config.parent}:" + env.get("PATH", "")
         env["XMLRPC_C_CONFIG"] = str(xmlrpc_config)
+
+    if rpc_backend == "tinyxml2":
+        tinyxml2_cflags = capture(
+            ["pkg-config", "--cflags", "tinyxml2"],
+            check=False,
+            debug=debug,
+        )
+        tinyxml2_libs = capture(
+            ["pkg-config", "--libs", "tinyxml2"],
+            check=False,
+            debug=debug,
+        )
+
+        if tinyxml2_cflags:
+            env["CPPFLAGS"] = f"{tinyxml2_cflags} " + env.get("CPPFLAGS", "")
+            env["CXXFLAGS"] = f"{tinyxml2_cflags} " + env.get("CXXFLAGS", "")
+            env["CFLAGS"] = f"{tinyxml2_cflags} " + env.get("CFLAGS", "")
+
+        if tinyxml2_libs:
+            env["LIBS"] = f"{tinyxml2_libs} " + env.get("LIBS", "")
+            env["LDFLAGS"] = f"{tinyxml2_libs} " + env.get("LDFLAGS", "")
 
     with Spinner("Preparing rTorrent build system", enabled=not debug):
         run(["autoreconf", "-i"], cwd=str(source_dir), env=env, debug=debug)
@@ -500,25 +543,50 @@ def build_rtorrent(base_dir, rtorrent_ref, libtorrent_install, rpc_backend, xmlr
 
     rpc_flag = "--with-xmlrpc-c" if rpc_backend == "xmlrpc-c" else "--with-xmlrpc-tinyxml2"
     configure_cmd = ["./configure", f"--prefix={install_dir}", rpc_flag]
+
     with Spinner("Configuring rTorrent", enabled=not debug):
         run(configure_cmd, cwd=str(source_dir), env=env, debug=debug)
+
     with Spinner("Building rTorrent", enabled=not debug):
-        run(["make", "-j", str(os.cpu_count() or 1)], cwd=str(source_dir), env=env, debug=debug, log_name=f"make_{Path(source_dir).name}")
+        run(
+            ["make", "-j", str(os.cpu_count() or 1)],
+            cwd=str(source_dir),
+            env=env,
+            debug=debug,
+            log_name=f"make_{Path(source_dir).name}",
+        )
+
     with Spinner("Installing rTorrent", enabled=not debug):
-        run(["make", "install"], cwd=str(source_dir), env=env, debug=debug, log_name=f"make_install_{Path(source_dir).name}")
+        run(
+            ["make", "install"],
+            cwd=str(source_dir),
+            env=env,
+            debug=debug,
+            log_name=f"make_install_{Path(source_dir).name}",
+        )
 
     runtime_prefixes = [libtorrent_install]
+
     if rpc_backend == "xmlrpc-c" and xmlrpc_install:
         runtime_prefixes.append(xmlrpc_install)
+
     if curl_install:
         runtime_prefixes.append(curl_install)
+
     if cares_install:
         runtime_prefixes.append(cares_install)
+
     runtime_env = build_env(*runtime_prefixes)
     runtime_env["LD_LIBRARY_PATH"] = ":".join([f"{p}/lib" for p in runtime_prefixes])
-    version = capture([str(install_dir / "bin" / "rtorrent"), "-h"], env=runtime_env, check=False, debug=debug)
-    return install_dir, version
 
+    version = capture(
+        [str(install_dir / "bin" / "rtorrent"), "-h"],
+        env=runtime_env,
+        check=False,
+        debug=debug,
+    )
+
+    return install_dir, version
 
 def install_symlinks(rtorrent_install, libtorrent_install, xmlrpc_install=None, curl_install=None, cares_install=None, *, debug=False):
     rtorrent_bin = Path(rtorrent_install) / "bin" / "rtorrent"

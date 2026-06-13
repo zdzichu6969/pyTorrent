@@ -20,7 +20,10 @@ def browse_path(profile: dict, path: str | None = None) -> dict:
         'dir_count=0; file_count=0; '
         'for p in "$base"/* "$base"/.[!.]* "$base"/..?*; do '
         '[ -e "$p" ] || continue; '
-        'if [ -d "$p" ]; then dir_count=$((dir_count+1)); name=${p##*/}; printf "D\\t%s\\t%s\\n" "$name" "$p"; '
+        'if [ -d "$p" ]; then '
+        'dir_count=$((dir_count+1)); name=${p##*/}; empty=1; '
+        'if find "$p" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .; then empty=0; fi; '
+        'printf "D\\t%s\\t%s\\t%s\\n" "$name" "$p" "$empty"; '
         'elif [ -f "$p" ]; then file_count=$((file_count+1)); fi; '
         'done; '
         'printf "M\\t%s\\t%s\\n" "$dir_count" "$file_count"; '
@@ -37,9 +40,12 @@ def browse_path(profile: dict, path: str | None = None) -> dict:
             continue
         marker, rest = line.split("\t", 1)
         if marker == "D" and "\t" in rest:
-            name, full_path = rest.split("\t", 1)
+            parts = rest.split("\t", 2)
+            name, full_path = parts[0], parts[1]
+            is_empty = len(parts) > 2 and parts[2] == "1"
             if name not in {".", ".."}:
-                dirs.append({"name": name, "path": full_path})
+                # Note: Empty status is returned with every directory so the path picker can enable safe inline rename.
+                dirs.append({"name": name, "path": full_path, "empty": is_empty})
         elif marker == "M" and "\t" in rest:
             first, second = rest.split("\t", 1)
             try:
@@ -77,6 +83,60 @@ def browse_path(profile: dict, path: str | None = None) -> dict:
         "free_h": human_size(disk_free),
         "used_percent": disk_percent,
     }
+
+
+
+def _safe_directory_name(name: str) -> str:
+    value = str(name or "").strip()
+    if not value or value in {".", ".."} or "/" in value or "\x00" in value:
+        raise ValueError("Invalid directory name")
+    return value
+
+
+def create_directory(profile: dict, parent: str, name: str) -> dict:
+    """Create a remote directory without changing existing path-picker behavior."""
+    # Note: Directory creation is remote-side, so Add/Move sees the same filesystem as rTorrent.
+    c = client_for(profile)
+    clean_parent = _remote_clean_path(parent or default_download_path(profile))
+    clean_name = _safe_directory_name(name)
+    target = _remote_join(clean_parent, clean_name)
+    script = (
+        'parent=$1; target=$2; '
+        'if [ ! -d "$parent" ]; then printf "ERR\tParent directory does not exist"; exit 0; fi; '
+        'if [ -e "$target" ] || [ -L "$target" ]; then printf "ERR\tDirectory already exists"; exit 0; fi; '
+        'mkdir -- "$target" 2>/dev/null || { printf "ERR\tCannot create directory"; exit 0; }; '
+        'printf "OK\t%s" "$target"'
+    )
+    output = str(_rt_execute(c, "execute.capture", "sh", "-c", script, "pytorrent-mkdir", clean_parent, target) or "").strip()
+    if not output.startswith("OK\t"):
+        raise RuntimeError(output.split("\t", 1)[1] if "\t" in output else "Cannot create directory")
+    return {"path": output.split("\t", 1)[1], "name": clean_name}
+
+
+def rename_empty_directory(profile: dict, path: str, new_name: str) -> dict:
+    """Rename an empty remote directory in place."""
+    # Note: Rename is intentionally limited to empty folders to avoid invalidating active torrent paths.
+    c = client_for(profile)
+    source = _remote_clean_path(path or "")
+    clean_name = _safe_directory_name(new_name)
+    if not source or source == "/":
+        raise ValueError("Cannot rename this directory")
+    parent = posixpath.dirname(source.rstrip("/")) or "/"
+    target = _remote_join(parent, clean_name)
+    if source == target:
+        return {"path": target, "name": clean_name, "parent": parent}
+    script = (
+        'src=$1; dst=$2; '
+        'if [ ! -d "$src" ]; then printf "ERR\tDirectory does not exist"; exit 0; fi; '
+        'if [ -e "$dst" ] || [ -L "$dst" ]; then printf "ERR\tTarget directory already exists"; exit 0; fi; '
+        'if [ -n "$(find "$src" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then printf "ERR\tOnly empty directories can be renamed"; exit 0; fi; '
+        'mv -- "$src" "$dst" 2>/dev/null || { printf "ERR\tCannot rename directory"; exit 0; }; '
+        'printf "OK\t%s" "$dst"'
+    )
+    output = str(_rt_execute(c, "execute.capture", "sh", "-c", script, "pytorrent-rename-dir", source, target) or "").strip()
+    if not output.startswith("OK\t"):
+        raise RuntimeError(output.split("\t", 1)[1] if "\t" in output else "Cannot rename directory")
+    return {"path": output.split("\t", 1)[1], "name": clean_name, "parent": parent}
 
 def remote_public_ip(profile: dict, force: bool = False) -> str:
     profile_id = int(profile.get("id") or 0)

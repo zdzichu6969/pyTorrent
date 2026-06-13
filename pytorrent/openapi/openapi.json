@@ -955,8 +955,7 @@
             "properties": {
               "dirs": {
                 "items": {
-                  "additionalProperties": true,
-                  "type": "object"
+                  "$ref": "#/components/schemas/PathDirectoryEntry"
                 },
                 "type": "array"
               },
@@ -2154,6 +2153,72 @@
           "ok",
           "url",
           "expires_in"
+        ]
+      },
+      "PathDirectoryEntry": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "has_torrents": {
+            "type": "boolean"
+          },
+          "can_rename": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      },
+      "PathDirectoryCreateRequest": {
+        "type": "object",
+        "required": [
+          "parent",
+          "name"
+        ],
+        "properties": {
+          "parent": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PathDirectoryRenameRequest": {
+        "type": "object",
+        "required": [
+          "path",
+          "new_name"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "new_name": {
+            "type": "string"
+          }
+        }
+      },
+      "PathDirectoryMutationResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ApiOk"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "directory": {
+                "$ref": "#/components/schemas/PathDirectoryEntry"
+              }
+            }
+          }
         ]
       }
     },
@@ -7947,6 +8012,92 @@
             }
           }
         }
+      }
+    },
+    "/api/path/directories": {
+      "post": {
+        "summary": "Create an empty directory",
+        "description": "Creates a directory on the active rTorrent host for inline path-picker use. Existing torrent state is not changed.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PathDirectoryCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PathDirectoryMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/api/path/directories/rename": {
+      "post": {
+        "summary": "Rename an empty directory",
+        "description": "Renames a directory only when it is empty and does not contain a cached torrent path.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PathDirectoryRenameRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Renamed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PathDirectoryMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
       }
     }
   }

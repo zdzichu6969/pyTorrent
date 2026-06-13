@@ -449,10 +449,12 @@ body {
 .table-wrap {
   contain: content;
   overflow: auto;
+  overflow-anchor: none;
   position: relative;
 }
 .torrent-table {
   --torrent-row-height: 32px;
+  overflow-anchor: none;
   font-size: var(--torrent-list-font-size, 13px);
   margin: 0;
   white-space: nowrap;
@@ -476,6 +478,24 @@ body {
 }
 .torrent-table tbody tr {
   cursor: default;
+  height: var(--torrent-row-height);
+}
+
+/* Virtualized torrent table: a single fixed-height body keeps the native scroll range stable for very large lists. */
+.torrent-table tbody.torrent-virtual-body {
+  display: block;
+  position: relative;
+}
+.torrent-table tbody.torrent-virtual-body tr.torrent-virtual-row {
+  display: table;
+  left: 0;
+  position: absolute;
+  right: 0;
+  table-layout: fixed;
+  top: 0;
+  width: 100%;
+}
+.torrent-table tbody.torrent-virtual-body tr.torrent-virtual-row > td {
   height: var(--torrent-row-height);
 }
 .torrent-table > :not(caption) > * > * {
@@ -570,10 +590,6 @@ body.resizing-columns {
   user-select: none;
 }
 
-.virtual-spacer td {
-  padding: 0 !important;
-  border: 0 !important;
-}
 .empty {
   height: 120px;
   text-align: center;
@@ -1042,24 +1058,70 @@ body.resizing-details {
 .torrent-action + .torrent-action {
   margin-left: 0.08rem !important;
 }
+.path-inline-create {
+  align-items: center;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 .path-list {
-  height: 360px;
-  overflow: auto;
+  background: rgba(var(--bs-secondary-bg-rgb), 0.35);
   border: 1px solid var(--bs-border-color);
   border-radius: 0.6rem;
-  background: rgba(var(--bs-secondary-bg-rgb), 0.35);
+  height: 360px;
+  overflow: auto;
 }
+
 .path-row {
-  display: flex;
   align-items: center;
+  border-bottom: 1px solid var(--bs-border-color);
+  display: flex;
   gap: 0.5rem;
   padding: 0.42rem 0.6rem;
-  border-bottom: 1px solid var(--bs-border-color);
-  cursor: pointer;
 }
+
 .path-row:hover {
   background: var(--bs-primary-bg-subtle);
   color: var(--bs-primary-text-emphasis);
+}
+
+.path-row-open {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.path-row-open i,
+.path-rename-form i {
+  color: var(--bs-warning);
+  flex: 0 0 auto;
+}
+
+.path-row-open span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path-rename-btn {
+  flex: 0 0 auto;
+}
+
+.path-rename-form {
+  align-items: center;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 0.45rem;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
 }
 .chips {
   display: flex;
@@ -1289,12 +1351,6 @@ body.mobile-mode .main-grid {
 
 .column-card i {
   opacity: 0.72;
-}
-.path-row::before {
-  content: "\f07b";
-  font-family: "Font Awesome 6 Free";
-  font-weight: 900;
-  color: var(--bs-warning);
 }
 body.mobile-mode .mobile-card {
   display: block;
@@ -3011,6 +3067,31 @@ body.mobile-mode .mobile-filter-bar {
   box-shadow: none;
   color: var(--bs-danger-text-emphasis);
   outline: 0;
+}
+
+
+.jobs-toolbar,
+.jobs-toolbar-actions,
+.jobs-toolbar-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.jobs-toolbar {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.jobs-toolbar-actions,
+.jobs-toolbar-toggle {
+  align-items: center;
+}
+
+.jobs-show-details {
+  align-items: center;
+  margin-bottom: 0;
 }
 
 .jobs-table {

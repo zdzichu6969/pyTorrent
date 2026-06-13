@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ._shared import *
+import posixpath
 from ..services import operation_logs
 from ..services.frontend_assets import static_hash
 
@@ -337,6 +338,32 @@ def jobs_retry(job_id: str):
 
 
 
+def _remote_path_contains(base: str, candidate: str) -> bool:
+    base = posixpath.normpath(str(base or "").rstrip("/") or "/")
+    candidate = posixpath.normpath(str(candidate or "").rstrip("/") or "/")
+    return candidate == base or candidate.startswith(base.rstrip("/") + "/")
+
+
+def _path_has_cached_torrents(profile_id: int, path: str) -> bool:
+    # Note: The cache check prevents renaming folders that are currently known as torrent locations.
+    if not str(path or "").strip():
+        return False
+    return any(_remote_path_contains(path, item.get("path") or "") for item in torrent_cache.snapshot(profile_id))
+
+
+def _annotate_path_directories(profile: dict, payload: dict) -> dict:
+    dirs = payload.get("dirs") or []
+    for item in dirs:
+        item_path = item.get("path") or ""
+        has_torrents = _path_has_cached_torrents(int(profile.get("id") or 0), item_path)
+        is_empty = bool(item.get("empty"))
+        item["has_torrents"] = has_torrents
+        item["can_rename"] = is_empty and not has_torrents
+        # Note: The picker exposes a short reason so disabled rename buttons explain the safety rule.
+        item["rename_reason"] = "Rename folder" if item["can_rename"] else ("Folder contains a known torrent path" if has_torrents else "Only empty folders can be renamed")
+    return payload
+
+
 @bp.get("/path/default")
 def path_default():
     profile = preferences.active_profile()
@@ -356,7 +383,40 @@ def path_browse():
         return jsonify({"ok": False, "error": "No profile"}), 400
     base = request.args.get("path") or ""
     try:
-        return ok(rtorrent.browse_path(profile, base))
+        return ok(_annotate_path_directories(profile, rtorrent.browse_path(profile, base)))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@bp.post("/path/directories")
+def path_directory_create():
+    profile = preferences.active_profile()
+    if not profile:
+        return jsonify({"ok": False, "error": "No profile"}), 400
+    require_profile_write(profile.get("id"))
+    data = request.get_json(silent=True) or {}
+    try:
+        # Note: This endpoint only creates an empty directory and does not alter any torrent state.
+        result = rtorrent.create_directory(profile, data.get("parent") or "", data.get("name") or "")
+        return ok({"directory": result})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@bp.post("/path/directories/rename")
+def path_directory_rename():
+    profile = preferences.active_profile()
+    if not profile:
+        return jsonify({"ok": False, "error": "No profile"}), 400
+    require_profile_write(profile.get("id"))
+    data = request.get_json(silent=True) or {}
+    path = str(data.get("path") or "").strip()
+    if _path_has_cached_torrents(int(profile.get("id") or 0), path):
+        return jsonify({"ok": False, "error": "Directory contains a known torrent path"}), 400
+    try:
+        # Note: The service also verifies that the remote directory is empty before renaming.
+        result = rtorrent.rename_empty_directory(profile, path, data.get("new_name") or "")
+        return ok({"directory": result})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 

@@ -190,11 +190,19 @@
         <button class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div class="jobs-toolbar d-flex gap-2 mb-2 flex-wrap align-items-center">
-          <button id="refreshJobsBtn" class="btn btn-sm btn-outline-primary" type="button"><i class="fa-solid fa-rotate"></i> Refresh</button>
-          <button id="clearJobsBtn" class="btn btn-sm btn-outline-danger" type="button"><i class="fa-solid fa-trash"></i> Clear finished</button>
-          <button id="emergencyClearJobsBtn" class="btn btn-sm btn-danger" type="button"><i class="fa-solid fa-triangle-exclamation"></i> Emergency clean all</button>
-          <span class="text-muted small">Pending, running, done, failed, retry and cancel history.</span>
+        <div class="jobs-toolbar">
+          <div class="jobs-toolbar-actions">
+            <button id="refreshJobsBtn" class="btn btn-sm btn-outline-primary" type="button"><i class="fa-solid fa-rotate"></i> Refresh</button>
+            <button id="clearJobsBtn" class="btn btn-sm btn-outline-danger" type="button"><i class="fa-solid fa-trash"></i> Clear finished</button>
+            <button id="emergencyClearJobsBtn" class="btn btn-sm btn-danger" type="button"><i class="fa-solid fa-triangle-exclamation"></i> Emergency clean all</button>
+            <span class="text-muted small">Pending, running, done, failed, retry and cancel history.</span>
+          </div>
+          <div class="jobs-toolbar-toggle">
+            <label class="form-check form-switch jobs-show-details">
+              <input id="jobsShowDetails" class="form-check-input" type="checkbox">
+              <span class="form-check-label">Show details</span>
+            </label>
+          </div>
         </div>
         <div id="jobsTable" class="table-responsive"><span class="spinner-border spinner-border-sm"></span> Loading jobs...</div>
         <div id="jobsPager" class="pager-row mt-2"></div>
@@ -227,6 +235,10 @@
             <input id="moveRecheck" class="form-check-input" type="checkbox" checked>
             <label class="form-check-label" for="moveRecheck">Recheck after move</label>
           </div>
+        </div>
+        <div class="path-inline-create mb-3">
+          <input id="pathCreateName" class="form-control form-control-sm" autocomplete="off" placeholder="New folder name">
+          <button id="pathCreateBtn" class="btn btn-sm btn-outline-primary" type="button"><i class="fa-solid fa-folder-plus"></i> Create</button>
         </div>
         <div id="pathList" class="path-list"><div class="p-3 text-muted">No path loaded.</div></div>
       </div>

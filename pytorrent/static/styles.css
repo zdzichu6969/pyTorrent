@@ -3969,6 +3969,11 @@ body,
   margin-top: 0.25rem;
 }
 
+.add-modal-footer {
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .add-torrent-layout {
   display: grid;
   gap: 0.85rem;

@@ -146,8 +146,8 @@ The default stack install creates:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/scripts/install_stack.sh \
-  | PYTORRENT_PORT=8091 \
-    RTORRENT_SCGI_PORT=5001 \
+  | PYTORRENT_PORT=8090 \
+    RTORRENT_SCGI_PORT=5000 \
     PYTORRENT_PROFILE_NAME="Local rTorrent" \
     bash
 ```

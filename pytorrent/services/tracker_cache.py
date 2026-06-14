@@ -438,3 +438,50 @@ def favicon_path(domain: str, enabled: bool = True, force: bool = False) -> tupl
             (clean, utcnow(), now, "; ".join(errors[-8:]) or "favicon not found"),
         )
     return None, None
+
+
+def cached_domains_for_profile(profile_id: int, limit: int = 200) -> list[str]:
+    """Return tracker domains already known for a profile from the summary cache."""
+    # Note: The background favicon worker reads cached summary rows first, so it does not need the browser sidebar to discover domains.
+    domains: list[str] = []
+    seen: set[str] = set()
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT trackers_json FROM tracker_summary_cache WHERE profile_id=? ORDER BY updated_epoch DESC LIMIT ?",
+            (int(profile_id), max(1, int(limit or 200))),
+        ).fetchall()
+    for row in rows:
+        try:
+            items = json.loads(row.get("trackers_json") or "[]")
+        except Exception:
+            items = []
+        for item in items if isinstance(items, list) else []:
+            domain = tracker_domain(str((item or {}).get("url") or (item or {}).get("domain") or "")) or str((item or {}).get("domain") or "")
+            if domain and domain not in seen:
+                seen.add(domain)
+                domains.append(domain)
+    return domains[:max(1, int(limit or 200))]
+
+
+def warm_favicon_cache(domains: list[str], enabled: bool = True, limit: int = 20, force: bool = False) -> dict:
+    """Warm missing or stale tracker favicons for a bounded list of domains."""
+    # Note: Favicon lookup can perform network requests, so the caller must keep the batch size small.
+    clean_domains = []
+    seen: set[str] = set()
+    for domain in domains or []:
+        clean = tracker_domain(domain)
+        if clean and clean not in seen:
+            seen.add(clean)
+            clean_domains.append(clean)
+    checked = 0
+    cached = 0
+    errors: list[dict] = []
+    for domain in clean_domains[:max(0, int(limit or 0))]:
+        checked += 1
+        try:
+            path, _mime = favicon_path(domain, enabled=enabled, force=force)
+            if path:
+                cached += 1
+        except Exception as exc:
+            errors.append({"domain": domain, "error": str(exc)})
+    return {"checked": checked, "cached": cached, "errors": errors[:10]}

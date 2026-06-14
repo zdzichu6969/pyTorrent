@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import re
+import time
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +34,40 @@ GOOGLE_FONT_FAMILIES = (
     "Source Sans 3",
 )
 GOOGLE_FONT_WEIGHTS = "400;500;600;700;800"
+DOWNLOAD_RETRIES = int(os.environ.get("PYTORRENT_DOWNLOAD_RETRIES", "4"))
+DOWNLOAD_RETRY_DELAY = int(os.environ.get("PYTORRENT_DOWNLOAD_RETRY_DELAY", "10"))
+DOWNLOAD_TIMEOUT = int(os.environ.get("PYTORRENT_DOWNLOAD_TIMEOUT", "180"))
+
+
+def retry_countdown(seconds: int) -> None:
+    for remaining in range(seconds, 0, -1):
+        print(f"Retrying in {remaining}s...", end="\r", flush=True)
+        time.sleep(1)
+    if seconds > 0:
+        print(" " * 40, end="\r", flush=True)
+
+
+def candidate_urls(url: str) -> list[str]:
+    candidates = [url]
+    replacements = (
+        ("https://cdn.jsdelivr.net/npm/bootstrap@", "https://unpkg.com/bootstrap@"),
+        ("https://cdn.jsdelivr.net/npm/bootswatch@", "https://unpkg.com/bootswatch@"),
+        ("https://cdn.jsdelivr.net/npm/swagger-ui-dist@", "https://unpkg.com/swagger-ui-dist@"),
+        ("https://cdn.jsdelivr.net/gh/lipis/flag-icons@", "https://cdn.jsdelivr.net/npm/flag-icons@"),
+        ("https://cdn.jsdelivr.net/gh/DevExpress/bootstrap-themes@master/", "https://raw.githubusercontent.com/DevExpress/bootstrap-themes/master/"),
+        ("https://cdn.socket.io/", "https://cdnjs.cloudflare.com/ajax/libs/socket.io/"),
+        ("https://cdnjs.cloudflare.com/ajax/libs/font-awesome/", "https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@"),
+    )
+    for old, new in replacements:
+        if url.startswith(old):
+            candidates.append(url.replace(old, new, 1))
+    # font-awesome has a different path layout on npm/jsDelivr.
+    candidates = [item.replace("/css/all.min.css", "/css/all.min.css") for item in candidates]
+    unique = []
+    for item in candidates:
+        if item not in unique:
+            unique.append(item)
+    return unique
 
 
 def google_fonts_css_url() -> str:
@@ -147,15 +184,31 @@ def bootstrap_css_asset(theme: str) -> dict[str, str]:
 
 def download(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
-    req = Request(url, headers={"User-Agent": "pyTorrent installer"})
-    with urlopen(req, timeout=60) as response:
-        data = response.read()
-    if not data:
-        raise RuntimeError(f"Empty response for {url}")
-    tmp = dest.with_suffix(dest.suffix + ".tmp")
-    tmp.write_bytes(data)
-    tmp.replace(dest)
-    print(f"OK {dest.relative_to(ROOT)}")
+    last_error: Exception | None = None
+    for candidate in candidate_urls(url):
+        for attempt in range(1, DOWNLOAD_RETRIES + 1):
+            try:
+                req = Request(candidate, headers={"User-Agent": "pyTorrent installer"})
+                with urlopen(req, timeout=DOWNLOAD_TIMEOUT) as response:
+                    data = response.read()
+                if not data:
+                    raise RuntimeError(f"Empty response for {candidate}")
+                tmp = dest.with_suffix(dest.suffix + ".tmp")
+                tmp.write_bytes(data)
+                tmp.replace(dest)
+                if candidate != url:
+                    print(f"OK {dest.relative_to(ROOT)} from fallback {candidate}")
+                else:
+                    print(f"OK {dest.relative_to(ROOT)}")
+                return
+            except (HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+                last_error = exc
+                print(f"Download failed ({attempt}/{DOWNLOAD_RETRIES}) for {candidate}: {exc}")
+                if attempt < DOWNLOAD_RETRIES:
+                    retry_countdown(DOWNLOAD_RETRY_DELAY)
+        if candidate != candidate_urls(url)[-1]:
+            print(f"Trying alternative source: {candidate_urls(url)[candidate_urls(url).index(candidate) + 1]}")
+    raise RuntimeError(f"Failed to download {url}: {last_error}")
 
 
 def download_css_with_assets(url: str, dest: Path) -> None:
@@ -184,10 +237,22 @@ def download_google_fonts_css(url: str, dest: Path) -> None:
             "Accept": "text/css,*/*;q=0.1",
         },
     )
-    with urlopen(req, timeout=60) as response:
-        css = response.read().decode("utf-8", errors="ignore")
+    last_error: Exception | None = None
+    css = ""
+    for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        try:
+            with urlopen(req, timeout=DOWNLOAD_TIMEOUT) as response:
+                css = response.read().decode("utf-8", errors="ignore")
+            if not css.strip():
+                raise RuntimeError(f"Empty response for {url}")
+            break
+        except (HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
+            last_error = exc
+            print(f"Download failed ({attempt}/{DOWNLOAD_RETRIES}) for {url}: {exc}")
+            if attempt < DOWNLOAD_RETRIES:
+                retry_countdown(DOWNLOAD_RETRY_DELAY)
     if not css.strip():
-        raise RuntimeError(f"Empty response for {url}")
+        raise RuntimeError(f"Failed to download {url}: {last_error}")
 
     def replace_url(match: re.Match[str]) -> str:
         quote = match.group(1) or ""

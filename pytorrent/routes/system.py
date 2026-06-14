@@ -125,6 +125,11 @@ def app_status():
         status["port_check"] = {"status": "disabled", "enabled": False} if not bool((prefs or {}).get("port_check_enabled")) else port_check_status(force=False)
     except Exception as exc:
         status["port_check"] = {"status": "error", "error": str(exc)}
+    try:
+        from ..services import background_cache_warmup
+        status["background_cache_warmup"] = background_cache_warmup.status()
+    except Exception as exc:
+        status["background_cache_warmup"] = {"started": False, "error": str(exc)}
     status["api_ms"] = round((time.perf_counter() - started) * 1000, 2)
     return ok({"status": status})
 

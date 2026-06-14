@@ -24,6 +24,54 @@ DEFAULT_CURL_REF = "8.19.0"
 DEFAULT_SERVICE_PATH = "/etc/systemd/system/rtorrent@.service"
 DEFAULT_SCGI_PORT = 5000
 DEFAULT_TORRENT_PORT = 51300
+DOWNLOAD_RETRIES = int(os.environ.get("PYTORRENT_DOWNLOAD_RETRIES", "4"))
+DOWNLOAD_RETRY_DELAY = int(os.environ.get("PYTORRENT_DOWNLOAD_RETRY_DELAY", "10"))
+DOWNLOAD_CONNECT_TIMEOUT = int(os.environ.get("PYTORRENT_DOWNLOAD_CONNECT_TIMEOUT", "30"))
+DOWNLOAD_MAX_TIME = int(os.environ.get("PYTORRENT_DOWNLOAD_MAX_TIME", "600"))
+
+
+def retry_countdown(seconds):
+    for remaining in range(seconds, 0, -1):
+        print(f"Retrying in {remaining}s...", end="\r", flush=True)
+        time.sleep(1)
+    if seconds > 0:
+        print(" " * 40, end="\r", flush=True)
+
+
+def run_with_retry(cmd, *, retries=DOWNLOAD_RETRIES, retry_delay=DOWNLOAD_RETRY_DELAY, retry_label=None, **kwargs):
+    last_error = None
+    label = retry_label or " ".join(str(x) for x in cmd[:3])
+    for attempt in range(1, retries + 1):
+        try:
+            return run(cmd, **kwargs)
+        except InstallError as exc:
+            last_error = exc
+            print(f"{label} failed ({attempt}/{retries}): {exc}")
+            if attempt < retries:
+                retry_countdown(retry_delay)
+    raise last_error
+
+
+def download_url_candidates(url):
+    candidates = [url]
+    if url.startswith("https://github.com/c-ares/c-ares/releases/download/v") and url.endswith(".tar.gz"):
+        version = url.rsplit("/c-ares-", 1)[-1].removesuffix(".tar.gz")
+        candidates.append(f"https://codeload.github.com/c-ares/c-ares/tar.gz/refs/tags/v{version}")
+    if url.startswith("https://curl.se/download/curl-") and url.endswith(".tar.gz"):
+        version = url.rsplit("/curl-", 1)[-1].removesuffix(".tar.gz")
+        tag = "curl-" + version.replace(".", "_")
+        candidates.append(f"https://github.com/curl/curl/releases/download/{tag}/curl-{version}.tar.gz")
+        candidates.append(f"https://codeload.github.com/curl/curl/tar.gz/refs/tags/{tag}")
+    if "sourceforge.net/projects/xmlrpc-c/files/latest/download" in url:
+        candidates.append("https://downloads.sourceforge.net/project/xmlrpc-c/latest/download")
+    if url.startswith("https://downloads.sourceforge.net/project/xmlrpc-c/"):
+        candidates.append(url.replace("https://downloads.sourceforge.net/", "https://sourceforge.net/projects/").replace("project/xmlrpc-c/", "xmlrpc-c/files/"))
+
+    unique = []
+    for candidate in candidates:
+        if candidate not in unique:
+            unique.append(candidate)
+    return unique
 
 
 class InstallError(Exception):
@@ -220,17 +268,35 @@ def clone_or_update_repo(repo_url, repo_dir, ref, *, debug=False):
     repo_dir = Path(repo_dir)
     if not repo_dir.exists():
         with Spinner(f"Cloning {repo_dir.name}", enabled=not debug):
-            run(["git", "clone", repo_url, str(repo_dir)], debug=debug)
+            run_with_retry(["git", "clone", repo_url, str(repo_dir)], debug=debug, retry_label=f"git clone {repo_url}")
     else:
         print(f"Repository already exists: {repo_dir}")
     with Spinner(f"Checking out {repo_dir.name} -> {ref}", enabled=not debug):
-        run(["git", "fetch", "--all", "--tags"], cwd=str(repo_dir), debug=debug)
+        run_with_retry(["git", "fetch", "--all", "--tags"], cwd=str(repo_dir), debug=debug, retry_label=f"git fetch {repo_dir.name}")
         run(["git", "checkout", ref], cwd=str(repo_dir), debug=debug)
-        run(["git", "pull", "--ff-only"], cwd=str(repo_dir), check=False, debug=debug)
+        run_with_retry(["git", "pull", "--ff-only"], cwd=str(repo_dir), check=False, debug=debug, retry_label=f"git pull {repo_dir.name}")
 
 
 def download_file(url, destination, *, debug=False):
-    run(["curl", "-fL", url, "-o", str(destination)], debug=debug)
+    last_error = None
+    for candidate in download_url_candidates(url):
+        for attempt in range(1, DOWNLOAD_RETRIES + 1):
+            try:
+                return run([
+                    "curl",
+                    "-fL",
+                    "--connect-timeout", str(DOWNLOAD_CONNECT_TIMEOUT),
+                    "--max-time", str(DOWNLOAD_MAX_TIME),
+                    candidate,
+                    "-o", str(destination),
+                ], debug=debug)
+            except InstallError as exc:
+                last_error = exc
+                print(f"Download failed ({attempt}/{DOWNLOAD_RETRIES}) from {candidate}: {exc}")
+                if attempt < DOWNLOAD_RETRIES:
+                    retry_countdown(DOWNLOAD_RETRY_DELAY)
+        print(f"Trying alternative source if available after: {candidate}")
+    raise last_error or InstallError(f"Download failed: {url}")
 
 
 def extract_tarball(tarball, destination, *, debug=False):

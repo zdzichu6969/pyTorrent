@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 import json
+import threading
 from ..db import connect, default_user_id, utcnow
 from . import rtorrent, auth
 from .preferences import active_profile
@@ -9,6 +10,19 @@ from .workers import enqueue
 
 AUTOMATION_JOB_CHUNK_SIZE = 100
 AUTOMATION_LIGHT_ACTIONS = {'start', 'stop', 'pause', 'resume', 'set_label'}
+_CHECK_LOCKS: dict[tuple[int, int | None], threading.Lock] = {}
+_CHECK_LOCKS_GUARD = threading.Lock()
+
+
+def _check_lock(profile_id: int, rule_id: int | None = None) -> threading.Lock:
+    """Prevent overlapping automation runs for the same profile or rule."""
+    key = (int(profile_id), int(rule_id) if rule_id is not None else None)
+    with _CHECK_LOCKS_GUARD:
+        if key not in _CHECK_LOCKS:
+            _CHECK_LOCKS[key] = threading.Lock()
+        return _CHECK_LOCKS[key]
+
+
 
 
 def _resolve_user_id(profile: dict[str, Any] | None = None, user_id: int | None = None) -> int:
@@ -457,50 +471,57 @@ def check(profile: dict | None = None, user_id: int | None = None, force: bool =
     profile_id = int(profile['id'])
     if rule_id is not None:
         _require_profile_read(profile_id, user_id)
-    rules = _list_enabled_rules_for_profile(profile_id, rule_id=rule_id, force=force)
-    if not rules:
-        return {'ok': True, 'checked': 0, 'applied': [], 'batches': [], 'rules': 0}
-    torrents = rtorrent.list_torrents(profile)
-    applied = []
-    batches = []
-    now = utcnow()
-    planned: list[dict[str, Any]] = []
-    with connect() as conn:
-        for rule in rules:
-            if not force and not _cooldown_ok(conn, rule, profile_id):
-                continue
-            matched = [t for t in torrents if _conditions_match(conn, rule, profile_id, t)]
-            if not matched:
-                continue
-            hashes = [str(t.get('hash') or '') for t in matched if str(t.get('hash') or '')]
-            if hashes:
-                planned.append({'rule': rule, 'matched': matched, 'hashes': hashes})
-    for item in planned:
-        rule = item['rule']
-        matched = item['matched']
-        hashes = item['hashes']
-        owner_id = int(rule.get('user_id') or rule.get('owner_user_id') or default_user_id())
-        if not auth.can_write_profile(profile_id, owner_id):
-            batch = _record_skipped_rule(profile_id, rule, hashes, 'Rule owner no longer has write access to profile', now)
-            batches.append(batch)
-            continue
-        try:
-            actions = _apply_effects_bulk(None, profile, matched, rule.get('effects') or [], rule, owner_id)
-        except Exception as exc:
-            actions = [{'error': str(exc), 'count': len(hashes), 'target_hashes': hashes}]
-        changed_hashes = sorted({h for a in actions for h in (a.get('target_hashes') or [])})
-        if not actions or not changed_hashes:
-            continue
-        history_actions = [{k: v for k, v in a.items() if k != 'target_hashes'} for a in actions]
-        matched_by_hash = {str(t.get('hash') or ''): t for t in matched}
+    lock = _check_lock(profile_id, rule_id)
+    if not lock.acquire(blocking=False):
+        # Note: Browser, manual and background checks can now coexist without duplicate rule application.
+        return {'ok': True, 'checked': 0, 'applied': [], 'batches': [], 'rules': 0, 'skipped': True, 'reason': 'Automation check already running'}
+    try:
+        rules = _list_enabled_rules_for_profile(profile_id, rule_id=rule_id, force=force)
+        if not rules:
+            return {'ok': True, 'checked': 0, 'applied': [], 'batches': [], 'rules': 0}
+        torrents = rtorrent.list_torrents(profile)
+        applied = []
+        batches = []
+        now = utcnow()
+        planned: list[dict[str, Any]] = []
         with connect() as conn:
-            for h in changed_hashes:
-                t = matched_by_hash.get(h, {})
-                conn.execute('INSERT INTO automation_rule_state(rule_id,profile_id,torrent_hash,last_matched_at,last_applied_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(rule_id,profile_id,torrent_hash) DO UPDATE SET last_matched_at=excluded.last_matched_at, last_applied_at=excluded.last_applied_at, updated_at=excluded.updated_at', (rule['id'], profile_id, h, now, now, now))
-                applied.append({'rule_id': rule['id'], 'rule_name': rule.get('name'), 'owner_user_id': owner_id, 'owner_label': rule.get('owner_label'), 'hash': h, 'name': t.get('name'), 'actions': [{'type': a.get('type', 'error'), 'count': a.get('count', len(changed_hashes))} for a in actions]})
-            _mark_rule_cooldown(conn, rule, profile_id, now)
-            torrent_name = str(matched_by_hash.get(changed_hashes[0], {}).get('name') or '') if len(changed_hashes) == 1 else f'{len(changed_hashes)} torrents'
-            torrent_hash = changed_hashes[0] if len(changed_hashes) == 1 else f'batch:{rule["id"]}:{now}'
-            conn.execute('INSERT INTO automation_history(user_id,profile_id,rule_id,torrent_hash,torrent_name,rule_name,actions_json,created_at) VALUES(?,?,?,?,?,?,?,?)', (owner_id, profile_id, rule['id'], torrent_hash, torrent_name, str(rule.get('name') or ''), json.dumps(history_actions), now))
-        batches.append({'rule_id': rule['id'], 'rule_name': rule.get('name'), 'owner_user_id': owner_id, 'owner_label': rule.get('owner_label'), 'count': len(changed_hashes), 'actions': history_actions})
-    return {'ok': True, 'checked': len(torrents), 'rules': len(rules), 'applied': applied, 'batches': batches}
+            for rule in rules:
+                if not force and not _cooldown_ok(conn, rule, profile_id):
+                    continue
+                matched = [t for t in torrents if _conditions_match(conn, rule, profile_id, t)]
+                if not matched:
+                    continue
+                hashes = [str(t.get('hash') or '') for t in matched if str(t.get('hash') or '')]
+                if hashes:
+                    planned.append({'rule': rule, 'matched': matched, 'hashes': hashes})
+        for item in planned:
+            rule = item['rule']
+            matched = item['matched']
+            hashes = item['hashes']
+            owner_id = int(rule.get('user_id') or rule.get('owner_user_id') or default_user_id())
+            if not auth.can_write_profile(profile_id, owner_id):
+                batch = _record_skipped_rule(profile_id, rule, hashes, 'Rule owner no longer has write access to profile', now)
+                batches.append(batch)
+                continue
+            try:
+                actions = _apply_effects_bulk(None, profile, matched, rule.get('effects') or [], rule, owner_id)
+            except Exception as exc:
+                actions = [{'error': str(exc), 'count': len(hashes), 'target_hashes': hashes}]
+            changed_hashes = sorted({h for a in actions for h in (a.get('target_hashes') or [])})
+            if not actions or not changed_hashes:
+                continue
+            history_actions = [{k: v for k, v in a.items() if k != 'target_hashes'} for a in actions]
+            matched_by_hash = {str(t.get('hash') or ''): t for t in matched}
+            with connect() as conn:
+                for h in changed_hashes:
+                    t = matched_by_hash.get(h, {})
+                    conn.execute('INSERT INTO automation_rule_state(rule_id,profile_id,torrent_hash,last_matched_at,last_applied_at,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(rule_id,profile_id,torrent_hash) DO UPDATE SET last_matched_at=excluded.last_matched_at, last_applied_at=excluded.last_applied_at, updated_at=excluded.updated_at', (rule['id'], profile_id, h, now, now, now))
+                    applied.append({'rule_id': rule['id'], 'rule_name': rule.get('name'), 'owner_user_id': owner_id, 'owner_label': rule.get('owner_label'), 'hash': h, 'name': t.get('name'), 'actions': [{'type': a.get('type', 'error'), 'count': a.get('count', len(changed_hashes))} for a in actions]})
+                _mark_rule_cooldown(conn, rule, profile_id, now)
+                torrent_name = str(matched_by_hash.get(changed_hashes[0], {}).get('name') or '') if len(changed_hashes) == 1 else f'{len(changed_hashes)} torrents'
+                torrent_hash = changed_hashes[0] if len(changed_hashes) == 1 else f'batch:{rule["id"]}:{now}'
+                conn.execute('INSERT INTO automation_history(user_id,profile_id,rule_id,torrent_hash,torrent_name,rule_name,actions_json,created_at) VALUES(?,?,?,?,?,?,?,?)', (owner_id, profile_id, rule['id'], torrent_hash, torrent_name, str(rule.get('name') or ''), json.dumps(history_actions), now))
+            batches.append({'rule_id': rule['id'], 'rule_name': rule.get('name'), 'owner_user_id': owner_id, 'owner_label': rule.get('owner_label'), 'count': len(changed_hashes), 'actions': history_actions})
+        return {'ok': True, 'checked': len(torrents), 'rules': len(rules), 'applied': applied, 'batches': batches}
+    finally:
+        lock.release()

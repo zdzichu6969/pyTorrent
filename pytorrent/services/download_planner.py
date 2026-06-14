@@ -8,7 +8,10 @@ from typing import Any
 import psutil
 
 from ..db import connect, default_user_id, utcnow
-from . import auth, rtorrent
+from . import auth, operation_logs, rtorrent
+
+PLANNER_STARTUP_DELAY_SECONDS = 60
+_APP_STARTED_AT = time.monotonic()
 
 DEFAULTS = {
     "enabled": False,
@@ -45,6 +48,34 @@ DEFAULTS = {
 _LAST_RUN: dict[int, float] = {}
 _LAST_LIMITS: dict[int, tuple[int, int]] = {}
 _HIGH_CPU_SINCE: dict[int, float] = {}
+_PLANNER_CONNECTION_STATUS: dict[int, str] = {}
+
+
+def _rtorrent_ready(profile: dict) -> tuple[bool, str]:
+    """Check rTorrent connectivity before the planner evaluates or applies changes."""
+    try:
+        rtorrent.client_for(profile).call("system.client_version")
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _log_connection_status(profile: dict, status: str, message: str, *, error: str = "", user_id: int | None = None) -> None:
+    """Record planner connectivity state changes as system operations without noisy repeats."""
+    profile_id = int(profile.get("id") or 0)
+    if _PLANNER_CONNECTION_STATUS.get(profile_id) == status:
+        return
+    _PLANNER_CONNECTION_STATUS[profile_id] = status
+    operation_logs.record(
+        profile_id,
+        "download_planner_status",
+        message,
+        severity="warning" if error else "info",
+        source="system",
+        action="download_planner",
+        details={"status": status, "error": error},
+        user_id=user_id or int(profile.get("user_id") or 0) or None,
+    )
 
 
 def _bool(value: Any) -> bool:
@@ -471,11 +502,20 @@ def enforce(profile: dict, force: bool = False, user_id: int | None = None) -> d
         return {"ok": True, "enabled": False, "profile_id": profile_id, "skipped": True, "reason": "planner owner has no write access", "history": history(profile_id, 20), "history_total": history_count(profile_id)}
     if not settings.get("enabled"):
         return {"ok": True, "enabled": False, "profile_id": profile_id, "history": history(profile_id, 20), "history_total": history_count(profile_id), "preview": preview(profile, user_id=user_id)}
+    startup_remaining = int(PLANNER_STARTUP_DELAY_SECONDS - (time.monotonic() - _APP_STARTED_AT))
+    if not force and startup_remaining > 0:
+        # Note: The background planner keeps the same startup grace as rTorrent config apply, while manual checks still run immediately.
+        return {"ok": True, "enabled": True, "profile_id": profile_id, "skipped": True, "reason": "startup_delay", "retry_after_seconds": startup_remaining}
     now = time.monotonic()
     interval = int(settings.get("check_interval_seconds") or 30)
     if not force and now - _LAST_RUN.get(profile_id, 0) < interval:
         return {"ok": True, "enabled": True, "profile_id": profile_id, "skipped": True}
     _LAST_RUN[profile_id] = now
+    ready, connection_error = _rtorrent_ready(profile)
+    if not ready:
+        _log_connection_status(profile, "waiting", f"Download Planner is waiting for rTorrent: {connection_error}", error=connection_error, user_id=user_id)
+        return {"ok": True, "enabled": True, "profile_id": profile_id, "skipped": True, "reason": "rtorrent_unavailable", "error": connection_error, "retry_after_seconds": interval}
+    _log_connection_status(profile, "connected", "Download Planner detected a working rTorrent connection", user_id=user_id)
     decision = evaluate(profile, settings)
     result: dict[str, Any] = {"ok": True, "enabled": True, **decision, "limits_changed": False, "paused": 0, "resumed": 0}
     wanted_limits = (int(decision["down"]), int(decision["up"]))

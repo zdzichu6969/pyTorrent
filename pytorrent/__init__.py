@@ -143,6 +143,8 @@ def create_app() -> Flask:
     register_socketio_handlers(socketio)
     from .services.startup_config import schedule_startup_config_apply
     schedule_startup_config_apply(socketio)
+    from .services.background_automations import start_scheduler as start_background_automation_scheduler
+    start_background_automation_scheduler(socketio)
     from .services.rss import start_scheduler as start_rss_scheduler
     from .services.ratio_rules import start_scheduler as start_ratio_scheduler
     from .services.download_planner import start_scheduler as start_download_planner_scheduler
@@ -151,4 +153,6 @@ def create_app() -> Flask:
     start_ratio_scheduler(socketio)
     start_download_planner_scheduler(socketio)
     start_backup_scheduler()
+    from .services.background_cache_warmup import start_scheduler as start_cache_warmup_scheduler
+    start_cache_warmup_scheduler(socketio)
     return app

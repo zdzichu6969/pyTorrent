@@ -212,7 +212,7 @@ TORRENT_FIELDS = [
     "d.hash=", "d.name=", "d.state=", "d.complete=", "d.size_bytes=", "d.completed_bytes=",
     "d.ratio=", "d.up.rate=", "d.down.rate=", "d.up.total=", "d.down.total=", "d.peers_connected=",
     "d.peers_complete=", "d.priority=", "d.directory=", "d.base_path=", "d.creation_date=", "d.custom1=",
-    "d.custom=py_ratio_group", "d.message=", "d.hashing=", "d.is_active=", "d.is_multi_file=",
+    "d.custom=py_ratio_group", "d.message=", "d.hashing=", "d.is_active=", "d.is_open=", "d.is_multi_file=",
 ]
 
 TORRENT_OPTIONAL_FIELDS = [
@@ -224,7 +224,7 @@ LIVE_TORRENT_FIELDS = [
     "d.hash=", "d.state=", "d.complete=", "d.size_bytes=", "d.completed_bytes=",
     "d.ratio=", "d.up.rate=", "d.down.rate=", "d.up.total=", "d.down.total=",
     "d.peers_connected=", "d.peers_complete=", "d.message=", "d.hashing=", "d.is_active=",
-    "d.custom1=",
+    "d.is_open=", "d.custom1=",
 ]
 
 
@@ -254,13 +254,17 @@ def normalize_row(row: list) -> dict:
     eta_seconds = int(remaining_bytes / down_rate) if down_rate > 0 and not int(row[3] or 0) else 0
     directory = str(row[14] or "")
     base_path = str(row[15] or "")
-    is_multi_file = int(row[22] or 0) if len(row) > 22 else 0
+    state = int(row[2] or 0)
+    complete = int(row[3] or 0)
+    is_active = int(row[21] or 0) if len(row) > 21 else int(state)
+    is_open = int(row[22] or 0) if len(row) > 22 else int(is_active or state)
+    is_multi_file = int(row[23] or 0) if len(row) > 23 else 0
     # Note: Last activity is optional because older rTorrent builds may not expose this timestamp.
-    last_activity = int(row[23] or 0) if len(row) > 23 else 0
+    last_activity = int(row[24] or 0) if len(row) > 24 else 0
     if not last_activity and (down_rate > 0 or up_rate > 0):
         # Note: rTorrent builds without d.timestamp.last_active still expose live rates, so active rows get a safe current timestamp.
         last_activity = int(time.time())
-    completed_at = int(row[24] or 0) if len(row) > 24 else 0
+    completed_at = int(row[25] or 0) if len(row) > 25 else 0
 
     # Show the selected download location only. Hide the torrent root
     # directory for multi-file torrents and the filename for single-file
@@ -278,13 +282,12 @@ def normalize_row(row: list) -> dict:
     msg = str(row[19] or "")
     msg_l = msg.lower()
     hashing = int(row[20] or 0) if len(row) > 20 else 0
-    is_active = int(row[21] or 0) if len(row) > 21 else int(row[2] or 0)
-    state = int(row[2] or 0)
-    complete = int(row[3] or 0)
     # Note: d.hashing is authoritative; stale "hash check complete" messages must not keep the UI in Checking forever.
     is_checking = bool(hashing) or _message_indicates_active_check(msg_l)
     post_check = POST_CHECK_DOWNLOAD_LABEL in _label_names(str(row[17] or "")) and not is_checking and not bool(is_active)
-    is_paused = bool(state) and not bool(is_active) and not is_checking and not post_check
+    # Note: rTorrent's visible pause shape is state=1, open=1 and active=0.
+    # Manual Start handles this shape with a stop/start cycle because d.resume may leave it stuck.
+    is_paused = bool(state) and bool(is_open) and not bool(is_active) and not is_checking and not post_check
     # Note: Post-check is an application-level state that separates torrents waiting after a recheck from manually stopped torrents.
     status = "Checking" if is_checking else "Post-check" if post_check else "Paused" if is_paused else "Seeding" if complete and state else "Downloading" if state else "Stopped"
     to_download_bytes = remaining_bytes if not complete else 0
@@ -294,6 +297,7 @@ def normalize_row(row: list) -> dict:
         "name": str(row[1] or ""),
         "state": state,
         "active": is_active,
+        "open": is_open,
         "paused": is_paused,
         "complete": complete,
         "size": size,
@@ -344,10 +348,12 @@ def normalize_live_row(row: list) -> dict:
     msg = str(row[12] or "")
     hashing = int(row[13] or 0)
     is_active = int(row[14] or 0)
-    labels = str(row[15] or "")
+    is_open = int(row[15] or 0) if len(row) > 15 else int(is_active or state)
+    labels = str(row[16] or "") if len(row) > 16 else ""
     is_checking = bool(hashing) or _message_indicates_active_check(msg.lower())
     post_check = POST_CHECK_DOWNLOAD_LABEL in _label_names(labels) and not is_checking and not bool(is_active)
-    is_paused = bool(state) and not bool(is_active) and not is_checking and not post_check
+    # Note: Live patches keep the same pause classification as the full torrent snapshot.
+    is_paused = bool(state) and bool(is_open) and not bool(is_active) and not is_checking and not post_check
     status = "Checking" if is_checking else "Post-check" if post_check else "Paused" if is_paused else "Seeding" if complete and state else "Downloading" if state else "Stopped"
     progress = 100.0 if size <= 0 and complete else round((completed / size) * 100, 2) if size else 0.0
     to_download_bytes = remaining_bytes if not complete else 0
@@ -355,6 +361,7 @@ def normalize_live_row(row: list) -> dict:
         "hash": str(row[0] or ""),
         "state": state,
         "active": is_active,
+        "open": is_open,
         "paused": is_paused,
         "complete": complete,
         "completed_bytes": completed,
@@ -692,7 +699,7 @@ def stop_hash(c: ScgiRtorrentClient, torrent_hash: str) -> dict:
 
 
 def resume_paused_hash(c: ScgiRtorrentClient, torrent_hash: str) -> dict:
-    """Resume only a paused rTorrent item; never convert it through stop/start."""
+    """Resume only a paused rTorrent item using native rTorrent resume semantics."""
     h = str(torrent_hash or '')
     if not h:
         return {'hash': h, 'ok': False, 'error': 'missing hash'}
@@ -717,11 +724,11 @@ def resume_paused_hash(c: ScgiRtorrentClient, torrent_hash: str) -> dict:
 
 
 def start_or_resume_hash(c: ScgiRtorrentClient, torrent_hash: str, prefer_start: bool = False) -> dict:
-    """Start stopped torrents or resume real paused torrents.
+    """Start stopped torrents and recover open/inactive paused torrents.
 
-    Smart Queue passes prefer_start=True for candidates that were selected as stopped.
-    This avoids treating rTorrent's intermediate open/inactive state after a check as
-    a user pause and sending only d.resume, which can leave items pending forever.
+    rTorrent can expose a torrent as state=1, open=1 and active=0 while d.resume/d.start
+    alone does not wake it up. Manual Start uses the same recovery path users already
+    perform by hand: d.stop followed by d.open and d.start.
     """
     h = str(torrent_hash or '')
     if not h:
@@ -736,17 +743,9 @@ def start_or_resume_hash(c: ScgiRtorrentClient, torrent_hash: str, prefer_start:
         result.update({'ok': True, 'skipped': 'already_active', 'after': before})
         return result
 
-    if before.get('paused') and not prefer_start and not before.get('post_check'):
-        # Note: Manual Start keeps the clean pause-to-resume path. Do not classify every
-        # state=1/active=0 item as paused; after auto-check this can be only a transient
-        # open/inactive rTorrent state and needs d.open + d.start.
-        resumed = resume_paused_hash(c, h)
-        resumed['mode'] = 'resume_paused'
-        return resumed
-
-    if before.get('post_check'):
+    if (before.get('paused') and not prefer_start) or before.get('post_check'):
         try:
-            # Note: Post-check start first forces a clean stopped state, matching the manual Stop -> Start recovery path.
+            # Note: Start intentionally normalizes open/inactive torrents through Stop -> Start because d.resume can leave them stuck.
             c.call('d.stop', h)
             result['commands'].append('d.stop')
         except Exception as exc:
@@ -890,7 +889,7 @@ def action(profile: dict, torrent_hashes: list[str], name: str, payload: dict | 
             mark_done(h, item, results)
         return {"ok": True, "count": len(torrent_hashes), "remove_data": False, "results": results}
     if name in {"resume", "unpause"}:
-        # Note: Resume/Unpause uses only d.resume for Paused state.
+        # Note: Resume/Unpause keeps native rTorrent resume semantics; Start is the recovery action for stuck open/inactive torrents.
         results = previous_results
         for h in pending_hashes():
             item = resume_paused_hash(c, h)
@@ -898,7 +897,7 @@ def action(profile: dict, torrent_hashes: list[str], name: str, payload: dict | 
             mark_done(h, item, results)
         return {"ok": True, "count": len(torrent_hashes), "remove_data": False, "results": results}
     if name == "start":
-        # Note: Start separates Stopped from Paused; paused items go through d.resume, stopped items through d.start.
+        # Note: Start recovers stuck Paused/open-inactive rows with Stop -> Start while keeping normal stopped rows on d.start.
         results = previous_results
         for h in pending_hashes():
             item = start_or_resume_hash(c, h)

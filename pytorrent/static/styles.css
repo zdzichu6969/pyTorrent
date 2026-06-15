@@ -1546,12 +1546,6 @@ body.mobile-mode .mobile-card {
     display: none !important;
   }
 }
-.torrent-paused td {
-  opacity: 0.82;
-}
-.torrent-paused .name {
-  font-style: italic;
-}
 
 @media (max-width: 900px) {
   .main-grid {

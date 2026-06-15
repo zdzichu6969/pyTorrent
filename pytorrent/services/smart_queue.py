@@ -834,7 +834,7 @@ def _is_running_download_slot(t: dict[str, Any]) -> bool:
     """Return True for incomplete torrents that already occupy a Smart Queue slot."""
     # Note: Do not exclude Smart Queue/Stalled labels here. Manual Start can leave old labels,
     # and those torrents still must count toward the global Smart Queue limit.
-    return _is_started_download_slot(t)
+    return _is_started_download_slot(t) and not _is_user_paused(t)
 
 
 def _has_recent_transfer_activity(t: dict[str, Any], stalled_seconds: int) -> bool:

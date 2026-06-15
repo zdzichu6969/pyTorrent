@@ -354,7 +354,7 @@ def _active_downloading_hashes(profile: dict) -> list[str]:
     for row in rows:
         if int(row.get("complete") or 0):
             continue
-        if int(row.get("state") or 0) and not row.get("paused"):
+        if int(row.get("state") or 0) and not row.get("paused") and str(row.get("status") or "") != "Queued":
             h = str(row.get("hash") or "")
             if h:
                 hashes.append(h)

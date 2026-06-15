@@ -212,7 +212,7 @@ TORRENT_FIELDS = [
     "d.hash=", "d.name=", "d.state=", "d.complete=", "d.size_bytes=", "d.completed_bytes=",
     "d.ratio=", "d.up.rate=", "d.down.rate=", "d.up.total=", "d.down.total=", "d.peers_connected=",
     "d.peers_complete=", "d.priority=", "d.directory=", "d.base_path=", "d.creation_date=", "d.custom1=",
-    "d.custom=py_ratio_group", "d.message=", "d.hashing=", "d.is_active=", "d.is_open=", "d.is_multi_file=",
+    "d.custom=py_ratio_group", f"d.custom={PY_MANUAL_PAUSE_FIELD}", "d.message=", "d.hashing=", "d.is_active=", "d.is_open=", "d.is_multi_file=",
 ]
 
 TORRENT_OPTIONAL_FIELDS = [
@@ -224,7 +224,7 @@ LIVE_TORRENT_FIELDS = [
     "d.hash=", "d.state=", "d.complete=", "d.size_bytes=", "d.completed_bytes=",
     "d.ratio=", "d.up.rate=", "d.down.rate=", "d.up.total=", "d.down.total=",
     "d.peers_connected=", "d.peers_complete=", "d.message=", "d.hashing=", "d.is_active=",
-    "d.is_open=", "d.custom1=",
+    "d.is_open=", "d.custom1=", f"d.custom={PY_MANUAL_PAUSE_FIELD}",
 ]
 
 
@@ -256,15 +256,8 @@ def normalize_row(row: list) -> dict:
     base_path = str(row[15] or "")
     state = int(row[2] or 0)
     complete = int(row[3] or 0)
-    is_active = int(row[21] or 0) if len(row) > 21 else int(state)
-    is_open = int(row[22] or 0) if len(row) > 22 else int(is_active or state)
-    is_multi_file = int(row[23] or 0) if len(row) > 23 else 0
-    # Note: Last activity is optional because older rTorrent builds may not expose this timestamp.
-    last_activity = int(row[24] or 0) if len(row) > 24 else 0
-    if not last_activity and (down_rate > 0 or up_rate > 0):
-        # Note: rTorrent builds without d.timestamp.last_active still expose live rates, so active rows get a safe current timestamp.
-        last_activity = int(time.time())
-    completed_at = int(row[25] or 0) if len(row) > 25 else 0
+    # Note: is_multi_file is needed before status calculation because the display path hides the torrent root for multi-file payloads.
+    is_multi_file = int(row[24] or 0) if len(row) > 24 else 0
 
     # Show the selected download location only. Hide the torrent root
     # directory for multi-file torrents and the filename for single-file
@@ -279,17 +272,26 @@ def normalize_row(row: list) -> dict:
         display_path = directory.rstrip("/") + "/" if directory != "/" else directory
     else:
         display_path = ""
-    msg = str(row[19] or "")
+    manual_pause = str(row[19] or "").strip() == "1"
+    msg = str(row[20] or "")
     msg_l = msg.lower()
-    hashing = int(row[20] or 0) if len(row) > 20 else 0
+    hashing = int(row[21] or 0) if len(row) > 21 else 0
+    is_active = int(row[22] or 0) if len(row) > 22 else int(state)
+    is_open = int(row[23] or 0) if len(row) > 23 else int(is_active or state)
+    last_activity = int(row[25] or 0) if len(row) > 25 else 0
+    if not last_activity and (down_rate > 0 or up_rate > 0):
+        # Note: rTorrent builds without d.timestamp.last_active still expose live rates, so active rows get a safe current timestamp.
+        last_activity = int(time.time())
+    completed_at = int(row[26] or 0) if len(row) > 26 else 0
     # Note: d.hashing is authoritative; stale "hash check complete" messages must not keep the UI in Checking forever.
     is_checking = bool(hashing) or _message_indicates_active_check(msg_l)
     post_check = POST_CHECK_DOWNLOAD_LABEL in _label_names(str(row[17] or "")) and not is_checking and not bool(is_active)
-    # Note: rTorrent's visible pause shape is state=1, open=1 and active=0.
-    # Manual Start handles this shape with a stop/start cycle because d.resume may leave it stuck.
-    is_paused = bool(state) and bool(is_open) and not bool(is_active) and not is_checking and not post_check
-    # Note: Post-check is an application-level state that separates torrents waiting after a recheck from manually stopped torrents.
-    status = "Checking" if is_checking else "Post-check" if post_check else "Paused" if is_paused else "Seeding" if complete and state else "Downloading" if state else "Stopped"
+    # Note: rTorrent exposes queued/inactive torrents with the same runtime flags that older UI code called paused.
+    # The app marks only explicit user Pause requests with py_manual_pause so queued rows stay separate.
+    is_paused = manual_pause and not is_checking and not post_check
+    is_queued = bool(state) and bool(is_open) and not bool(is_active) and not bool(complete) and not is_paused and not is_checking and not post_check
+    # Note: Post-check and Queued are application-level UI statuses; rTorrent itself mainly exposes flags.
+    status = "Checking" if is_checking else "Post-check" if post_check else "Paused" if is_paused else "Queued" if is_queued else "Seeding" if complete and state else "Downloading" if state else "Stopped"
     to_download_bytes = remaining_bytes if not complete else 0
     # Note: The To download column is only meaningful for incomplete torrents; complete rows expose an empty display value.
     return {
@@ -299,6 +301,7 @@ def normalize_row(row: list) -> dict:
         "active": is_active,
         "open": is_open,
         "paused": is_paused,
+        "queued": is_queued,
         "complete": complete,
         "size": size,
         "size_h": human_size(size),
@@ -350,11 +353,13 @@ def normalize_live_row(row: list) -> dict:
     is_active = int(row[14] or 0)
     is_open = int(row[15] or 0) if len(row) > 15 else int(is_active or state)
     labels = str(row[16] or "") if len(row) > 16 else ""
+    manual_pause = str(row[17] or "").strip() == "1" if len(row) > 17 else False
     is_checking = bool(hashing) or _message_indicates_active_check(msg.lower())
     post_check = POST_CHECK_DOWNLOAD_LABEL in _label_names(labels) and not is_checking and not bool(is_active)
-    # Note: Live patches keep the same pause classification as the full torrent snapshot.
-    is_paused = bool(state) and bool(is_open) and not bool(is_active) and not is_checking and not post_check
-    status = "Checking" if is_checking else "Post-check" if post_check else "Paused" if is_paused else "Seeding" if complete and state else "Downloading" if state else "Stopped"
+    # Note: Live patches keep Queued separate from explicit user Paused using the same app marker as full snapshots.
+    is_paused = manual_pause and not is_checking and not post_check
+    is_queued = bool(state) and bool(is_open) and not bool(is_active) and not bool(complete) and not is_paused and not is_checking and not post_check
+    status = "Checking" if is_checking else "Post-check" if post_check else "Paused" if is_paused else "Queued" if is_queued else "Seeding" if complete and state else "Downloading" if state else "Stopped"
     progress = 100.0 if size <= 0 and complete else round((completed / size) * 100, 2) if size else 0.0
     to_download_bytes = remaining_bytes if not complete else 0
     return {
@@ -363,6 +368,7 @@ def normalize_live_row(row: list) -> dict:
         "active": is_active,
         "open": is_open,
         "paused": is_paused,
+        "queued": is_queued,
         "complete": complete,
         "completed_bytes": completed,
         "progress": progress,
@@ -625,47 +631,77 @@ def _str_rpc(c: ScgiRtorrentClient, method: str, h: str, default: str = '') -> s
         return default
 
 
+
+def _set_manual_pause(c: ScgiRtorrentClient, torrent_hash: str, enabled: bool) -> None:
+    """Persist the user Pause intent without touching the visible label field."""
+    # Note: rTorrent has no reliable queued-vs-user-paused flag, so pyTorrent stores that intent in d.custom.
+    c.call('d.custom.set', str(torrent_hash or ''), PY_MANUAL_PAUSE_FIELD, '1' if enabled else '')
+
+
+def _manual_pause_enabled(c: ScgiRtorrentClient, torrent_hash: str) -> bool:
+    h = str(torrent_hash or '')
+    for method, args in (
+        (f'd.custom={PY_MANUAL_PAUSE_FIELD}', (h,)),
+        ('d.custom', (h, PY_MANUAL_PAUSE_FIELD)),
+    ):
+        try:
+            if str(c.call(method, *args) or '').strip() == '1':
+                return True
+        except Exception:
+            continue
+    return False
+
 def _download_runtime_state(c: ScgiRtorrentClient, h: str) -> dict:
     """Read rTorrent state using the native pause model: stopped, paused or active."""
     state = _int_rpc(c, 'd.state', h)
     active = _int_rpc(c, 'd.is_active', h)
     opened = _int_rpc(c, 'd.is_open', h)
-    # Note: In rTorrent, pause does not change d.state. Paused means state=1, open=1, active=0.
     label = _str_rpc(c, 'd.custom1', h)
+    manual_pause = _manual_pause_enabled(c, h)
     post_check = POST_CHECK_DOWNLOAD_LABEL in _label_names(label) and not bool(active)
+    paused = bool(manual_pause and not post_check)
+    queued = bool(state and opened and not active and not paused and not post_check)
     return {
         'state': state,
         'open': opened,
         'active': active,
-        'paused': bool(state and opened and not active and not post_check),
+        'paused': paused,
+        'queued': queued,
         'stopped': not bool(state),
         'post_check': post_check,
         'label': label,
+        'manual_pause': manual_pause,
         'message': _str_rpc(c, 'd.message', h),
     }
 
 
 def pause_hash(c: ScgiRtorrentClient, torrent_hash: str) -> dict:
-    """Pause an active rTorrent item without stopping or closing it."""
+    """Mark a torrent as user-paused and ask rTorrent to pause it."""
     h = str(torrent_hash or '')
     if not h:
         return {'hash': h, 'ok': False, 'error': 'missing hash'}
     before = _download_runtime_state(c, h)
     result = {'hash': h, 'before': before, 'commands': []}
     try:
+        _set_manual_pause(c, h, True)
+        result['commands'].append('set_py_manual_pause')
         if before.get('stopped'):
-            # Note: rTorrent does not turn a stopped item into a paused one with d.pause alone.
-            # First move it out of STOP, then pause it, which matches the expected START -> PAUSE flow.
+            # Note: A stopped torrent has no native paused flag; opening it first lets the UI and later Resume follow the same path.
             try:
                 c.call('d.open', h)
                 result['commands'].append('d.open')
             except Exception as exc:
                 result.setdefault('ignored_errors', []).append(f'd.open: {exc}')
-            c.call('d.start', h)
-            result['commands'].append('d.start')
-        # Note: Smart Queue frees a slot with d.pause, not d.stop, so later d.resume behaves like ruTorrent.
-        c.call('d.pause', h)
-        result['commands'].append('d.pause')
+            try:
+                c.call('d.start', h)
+                result['commands'].append('d.start')
+            except Exception as exc:
+                result.setdefault('ignored_errors', []).append(f'd.start: {exc}')
+        try:
+            c.call('d.pause', h)
+            result['commands'].append('d.pause')
+        except Exception as exc:
+            result.setdefault('ignored_errors', []).append(f'd.pause: {exc}')
         result['after'] = _download_runtime_state(c, h)
         result['ok'] = True
     except Exception as exc:
@@ -681,9 +717,16 @@ def stop_hash(c: ScgiRtorrentClient, torrent_hash: str) -> dict:
     before = _download_runtime_state(c, h)
     result = {'hash': h, 'before': before, 'commands': []}
     if before.get('stopped') and not before.get('post_check'):
+        if before.get('manual_pause'):
+            _set_manual_pause(c, h, False)
+            result['commands'].append('clear_py_manual_pause')
+            before = _download_runtime_state(c, h)
         result.update({'ok': True, 'skipped': 'already_stopped', 'after': before})
         return result
     try:
+        if before.get('manual_pause'):
+            _set_manual_pause(c, h, False)
+            result['commands'].append('clear_py_manual_pause')
         # Note: User Stop converts the app-level Post-check state into a regular stopped torrent.
         if before.get('post_check'):
             clear_post_check_download_label(c, h, before.get('label'))
@@ -699,23 +742,34 @@ def stop_hash(c: ScgiRtorrentClient, torrent_hash: str) -> dict:
 
 
 def resume_paused_hash(c: ScgiRtorrentClient, torrent_hash: str) -> dict:
-    """Resume only a paused rTorrent item using native rTorrent resume semantics."""
+    """Resume a user-paused torrent and clear pyTorrent's pause marker."""
     h = str(torrent_hash or '')
     if not h:
         return {'hash': h, 'ok': False, 'error': 'missing hash'}
     before = _download_runtime_state(c, h)
     result: dict = {'hash': h, 'before': before, 'commands': []}
-    if before.get('stopped'):
-        result.update({'ok': False, 'skipped': 'stopped_not_paused', 'after': before})
-        return result
-    if before.get('active'):
+    if before.get('active') and not before.get('manual_pause'):
         result.update({'ok': True, 'skipped': 'already_active', 'after': before})
         return result
     try:
-        # Note: ruTorrent unpauses with the equivalent of d.resume. Do not add d.start/d.open,
-        # because those commands belong to Stopped/Open state, not a clean Paused state.
-        c.call('d.resume', h)
-        result['commands'].append('d.resume')
+        if before.get('manual_pause'):
+            _set_manual_pause(c, h, False)
+            result['commands'].append('clear_py_manual_pause')
+        try:
+            c.call('d.resume', h)
+            result['commands'].append('d.resume')
+        except Exception as exc:
+            result.setdefault('ignored_errors', []).append(f'd.resume: {exc}')
+        try:
+            c.call('d.open', h)
+            result['commands'].append('d.open')
+        except Exception as exc:
+            result.setdefault('ignored_errors', []).append(f'd.open: {exc}')
+        try:
+            c.call('d.start', h)
+            result['commands'].append('d.start')
+        except Exception as exc:
+            result.setdefault('ignored_errors', []).append(f'd.start: {exc}')
         result['after'] = _download_runtime_state(c, h)
         result['ok'] = True
     except Exception as exc:
@@ -735,6 +789,10 @@ def start_or_resume_hash(c: ScgiRtorrentClient, torrent_hash: str, prefer_start:
         return {'hash': h, 'ok': False, 'error': 'missing hash'}
     before = _download_runtime_state(c, h)
     result: dict = {'hash': h, 'before': before, 'commands': []}
+    if before.get('manual_pause'):
+        _set_manual_pause(c, h, False)
+        result['commands'].append('clear_py_manual_pause')
+        before = _download_runtime_state(c, h)
 
     if before.get('active'):
         if before.get('post_check'):
@@ -743,7 +801,7 @@ def start_or_resume_hash(c: ScgiRtorrentClient, torrent_hash: str, prefer_start:
         result.update({'ok': True, 'skipped': 'already_active', 'after': before})
         return result
 
-    if (before.get('paused') and not prefer_start) or before.get('post_check'):
+    if (before.get('paused') and not prefer_start) or before.get('queued') or before.get('post_check'):
         try:
             # Note: Start intentionally normalizes open/inactive torrents through Stop -> Start because d.resume can leave them stuck.
             c.call('d.stop', h)

@@ -448,7 +448,7 @@ def save_profile_preferences(user_id: int, profile_id: int | None, data: dict) -
             value = str(data.get("active_filter") or "all").strip()
             if not value or len(value) > 180:
                 value = "all"
-            allowed_static_filters = {"all", "downloading", "seeding", "paused", "checking", "error", "post_check", "stopped", "moving"}
+            allowed_static_filters = {"all", "downloading", "queued", "seeding", "paused", "checking", "error", "post_check", "stopped", "moving"}
             if value not in allowed_static_filters and not value.startswith("label:") and not value.startswith("tracker:"):
                 value = "all"
             updates["active_filter"] = value

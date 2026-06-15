@@ -19,7 +19,7 @@ _ERROR_PATTERNS = (
     "unreachable",
     "denied",
 )
-_SUMMARY_TYPES = ("all", "downloading", "seeding", "paused", "checking", "error", "post_check", "stopped")
+_SUMMARY_TYPES = ("all", "downloading", "queued", "seeding", "paused", "checking", "error", "post_check", "stopped")
 _summary_cache: dict[int, dict] = {}
 _summary_lock = RLock()
 
@@ -46,7 +46,9 @@ def _matches(row: dict, summary_type: str) -> bool:
     if summary_type == "all":
         return True
     if summary_type == "downloading":
-        return not checking and not bool(row.get("complete")) and bool(row.get("state")) and not bool(row.get("paused"))
+        return not checking and not bool(row.get("complete")) and bool(row.get("state")) and not bool(row.get("paused")) and str(row.get("status") or "") != "Queued"
+    if summary_type == "queued":
+        return not checking and (bool(row.get("queued")) or str(row.get("status") or "") == "Queued")
     if summary_type == "seeding":
         return not checking and bool(row.get("complete")) and bool(row.get("state")) and not bool(row.get("paused"))
     if summary_type == "paused":

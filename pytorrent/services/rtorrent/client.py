@@ -95,6 +95,7 @@ _REMOTE_USAGE_CACHE: dict[int, tuple[float, dict]] = {}
 _REMOTE_USAGE_TTL_SECONDS = 60.0
 _REMOTE_PUBLIC_IP_CACHE: dict[int, tuple[float, str]] = {}
 _REMOTE_PUBLIC_IP_TTL_SECONDS = 6 * 60 * 60.0
+PY_MANUAL_PAUSE_FIELD = "py_manual_pause"
 POST_CHECK_DOWNLOAD_LABEL = "To download after check"
 _POST_CHECK_WATCH_TTL_SECONDS = 48 * 60 * 60
 _POST_CHECK_WATCH_MIN_SECONDS = 2.0

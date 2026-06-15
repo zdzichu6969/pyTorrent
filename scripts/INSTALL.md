@@ -131,7 +131,7 @@ curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/script
 The API configurator can be run manually:
 
 ```bash
-/opt/pytorrent/venv/bin/python /opt/pytorrent/scripts/stack_installers/configure_pytorrent_api.py \
+/opt/pytorrent/.venv/bin/python /opt/pytorrent/scripts/stack_installers/configure_pytorrent_api.py \
   --base-url http://127.0.0.1:8090 \
   --profile-name "Local rTorrent" \
   --scgi-url scgi://127.0.0.1:5000

@@ -233,7 +233,7 @@ fi
 bash "${PROJECT_DIR}/scripts/install_pytorrent_only.sh" "${PYTORRENT_ONLY_ARGS[@]}"
 
 if [[ -n "${PYTORRENT_API_TOKEN}" ]]; then
-    "${PYTORRENT_APP_DIR}/venv/bin/python" "${PYTORRENT_APP_DIR}/scripts/stack_installers/configure_pytorrent_api.py" \
+    "${PYTORRENT_APP_DIR}/.venv/bin/python" "${PYTORRENT_APP_DIR}/scripts/stack_installers/configure_pytorrent_api.py" \
         --base-url "${PYTORRENT_BASE_URL}" \
         --profile-name "${PYTORRENT_PROFILE_NAME}" \
         --scgi-url "${PYTORRENT_RTORRENT_SCGI_URL}" \

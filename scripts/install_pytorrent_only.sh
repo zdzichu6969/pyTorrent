@@ -299,16 +299,16 @@ copy_application() {
     local project_dir
     project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
     mkdir -p "${APP_DIR}"
-    rsync -a --delete --exclude '.git' --exclude 'venv' --exclude '__pycache__' --exclude '*.pyc' "${project_dir}/" "${APP_DIR}/"
+    rsync -a --delete --exclude '.git' --exclude 'venv' --exclude '.venv'  --exclude '__pycache__' --exclude '*.pyc' "${project_dir}/" "${APP_DIR}/"
     chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}" "/var/lib/${APP_USER}" || true
 }
 
 install_python_app() {
     # Note: A private virtualenv keeps pyTorrent dependencies isolated from system Python packages.
     cd "${APP_DIR}"
-    "${PYTHON_BIN}" -m venv venv
-    venv/bin/pip install --upgrade pip wheel
-    venv/bin/pip install -r requirements.txt
+    "${PYTHON_BIN}" -m venv .venv
+    .venv/bin/pip install --upgrade pip wheel
+    .venv/bin/pip install -r requirements.txt
     mkdir -p data instance logs
     chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}"
 }
@@ -426,7 +426,7 @@ write_env() {
 install_frontend_libs() {
     # Note: Offline mode downloads local JS/CSS assets during installation; online mode uses CDN links.
     if [[ "${LIBS_MODE}" == "offline" && -f "${APP_DIR}/scripts/download_frontend_libs.py" ]]; then
-        sudo -u "${APP_USER}" "${APP_DIR}/venv/bin/python" "${APP_DIR}/scripts/download_frontend_libs.py" || true
+        sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" "${APP_DIR}/scripts/download_frontend_libs.py" || true
     fi
     if [[ -f "${APP_DIR}/scripts/download_geoip.sh" ]]; then
         sudo -u "${APP_USER}" bash "${APP_DIR}/scripts/download_geoip.sh" "${APP_DIR}/data/GeoLite2-City.mmdb" || true
@@ -444,7 +444,7 @@ configure_database() {
         PROFILE_NAME="${PROFILE_NAME}" \
         SCGI_URL="${SCGI_URL}" \
         SKIP_PROFILE="${SKIP_PROFILE}" \
-        "${APP_DIR}/venv/bin/python" - <<'PY'
+        "${APP_DIR}/.venv/bin/python" - <<'PY'
 import os
 from pytorrent.db import connect, init_db, utcnow
 from pytorrent.services.auth import password_hash
@@ -518,7 +518,7 @@ Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
 Environment="PYTHONUNBUFFERED=1"
 EnvironmentFile=${APP_DIR}/.env
-ExecStart=${APP_DIR}/venv/bin/gunicorn -c ${APP_DIR}/gunicorn.conf.py --worker-class gthread --workers 1 --threads 32 --bind \${PYTORRENT_HOST}:\${PYTORRENT_PORT} wsgi:app
+ExecStart=${APP_DIR}/.venv/bin/gunicorn -c ${APP_DIR}/gunicorn.conf.py --worker-class gthread --workers 1 --threads 32 --bind \${PYTORRENT_HOST}:\${PYTORRENT_PORT} wsgi:app
 Restart=always
 RestartSec=3
 KillSignal=SIGINT

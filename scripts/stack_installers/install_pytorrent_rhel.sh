@@ -44,15 +44,16 @@ mkdir -p "${APP_DIR}"
 rsync -a --delete \
     --exclude '.git' \
     --exclude 'venv' \
+    --exclude '.venv' \
     --exclude '__pycache__' \
     --exclude '*.pyc' \
     ./ "${APP_DIR}/"
 
 cd "${APP_DIR}"
 
-"${PYTHON_BIN}" -m venv venv
-venv/bin/pip install --upgrade pip wheel
-venv/bin/pip install -r requirements.txt
+"${PYTHON_BIN}" -m venv .venv
+.venv/bin/pip install --upgrade pip wheel
+.venv/bin/pip install -r requirements.txt
 
 mkdir -p data instance logs data/logs
 chown -R "${APP_USER}:${APP_USER}" "${APP_DIR}" "/var/lib/${APP_USER}"
@@ -95,7 +96,7 @@ chown -R "${APP_USER}:${APP_USER}" "${PYTORRENT_LOG_DIR_VALUE}" || true
 chown "${APP_USER}:${APP_USER}" .env
 
 if [[ -f scripts/download_frontend_libs.py ]]; then
-    sudo -u "${APP_USER}" "${APP_DIR}/venv/bin/python" scripts/download_frontend_libs.py || true
+    sudo -u "${APP_USER}" "${APP_DIR}/.venv/bin/python" scripts/download_frontend_libs.py || true
 fi
 
 if [[ -f scripts/download_geoip.sh ]]; then
@@ -115,7 +116,7 @@ Group=${APP_USER}
 WorkingDirectory=${APP_DIR}
 Environment="PYTHONUNBUFFERED=1"
 EnvironmentFile=${APP_DIR}/.env
-ExecStart=${APP_DIR}/venv/bin/gunicorn -c ${APP_DIR}/gunicorn.conf.py --worker-class gthread --workers 1 --threads 32 --bind \${PYTORRENT_HOST}:\${PYTORRENT_PORT} --access-logfile - --error-logfile - wsgi:app
+ExecStart=${APP_DIR}/.venv/bin/gunicorn -c ${APP_DIR}/gunicorn.conf.py --worker-class gthread --workers 1 --threads 32 --bind \${PYTORRENT_HOST}:\${PYTORRENT_PORT} --access-logfile - --error-logfile - wsgi:app
 Restart=always
 RestartSec=3
 KillSignal=SIGINT

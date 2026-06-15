@@ -83,7 +83,7 @@ Clone the repository and run the local development installer:
 git clone https://github.com/zdzichu6969/pyTorrent.git
 cd pyTorrent
 ./install.sh
-. venv/bin/activate
+. .venv/bin/activate
 python app.py
 ```
 
@@ -196,7 +196,7 @@ curl -fsSL https://raw.githubusercontent.com/zdzichu6969/pyTorrent/master/script
 Recommended production command:
 
 ```bash
-. venv/bin/activate
+. .venv/bin/activate
 gunicorn --worker-class gthread \
   --workers 1 \
   --threads 32 \
@@ -276,7 +276,7 @@ PYTORRENT_AUTH_PROVIDER=local
 Reset a local user's password:
 
 ```bash
-. venv/bin/activate
+. .venv/bin/activate
 python -m pytorrent.cli reset-password admin new_password
 ```
 
@@ -470,7 +470,7 @@ PYTORRENT_DEBUG_INSTALL=1 bash scripts/install_stack.sh
 ## Development
 
 ```bash
-. venv/bin/activate
+. .venv/bin/activate
 python app.py
 ```
 

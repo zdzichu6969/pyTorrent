@@ -155,19 +155,31 @@ def _next_retention_run(settings: dict, category: str) -> str | None:
     return (last + timedelta(hours=int(settings.get(f"{category}_retention_interval_hours") or 24))).isoformat(timespec="seconds")
 
 
+def _profile_settings_owner_id() -> int:
+    """Use one canonical owner for profile-level retention settings."""
+    return 0
+
+
 def get_settings(profile_id: int = 0, user_id: int | None = None) -> dict:
-    user_id = _user_id(user_id)
+    """Return profile-level retention settings, with legacy per-user rows as fallback only."""
     profile_id = int(profile_id or 0)
+    owner_id = _profile_settings_owner_id()
     with connect() as conn:
         row = conn.execute(
-            "SELECT * FROM operation_log_settings WHERE profile_id=? ORDER BY updated_at DESC, user_id ASC LIMIT 1",
-            (profile_id,),
+            """
+            SELECT *
+            FROM operation_log_settings
+            WHERE profile_id=?
+            ORDER BY CASE WHEN user_id=? THEN 0 ELSE 1 END, updated_at DESC, user_id ASC
+            LIMIT 1
+            """,
+            (profile_id, owner_id),
         ).fetchone()
     if not row:
-        data = {"owner_user_id": user_id, "profile_id": profile_id, **DEFAULT_SETTINGS}
+        data = {"owner_user_id": owner_id, "profile_id": profile_id, **DEFAULT_SETTINGS}
     else:
         data = {**DEFAULT_SETTINGS, **dict(row)}
-        data["owner_user_id"] = int(data.pop("user_id", user_id) or user_id)
+        data["owner_user_id"] = int(data.pop("user_id", owner_id) or owner_id)
     data["profile_id"] = profile_id
     data["retention_mode"] = _sanitize_mode(data.get("retention_mode"), DEFAULT_SETTINGS["retention_mode"])
     data["retention_days"] = _sanitize_days(data.get("retention_days"), DEFAULT_SETTINGS["retention_days"])
@@ -186,9 +198,11 @@ def get_settings(profile_id: int = 0, user_id: int | None = None) -> dict:
 def save_settings(profile_id: int, data: dict, user_id: int | None = None) -> dict:
     user_id = _user_id(user_id)
     profile_id = int(profile_id or 0)
+    owner_id = _profile_settings_owner_id()
     now = utcnow()
     if not auth.can_write_profile(profile_id, user_id):
         raise PermissionError("No write access to profile")
+    # Note: retention is intentionally shared by every user that works on the same profile.
     current = get_settings(profile_id, user_id)
     legacy_mode = _sanitize_mode(data.get("retention_mode") or current.get("retention_mode"), DEFAULT_SETTINGS["retention_mode"])
     legacy_days = _sanitize_days(data.get("retention_days") or current.get("retention_days"), DEFAULT_SETTINGS["retention_days"])
@@ -237,7 +251,7 @@ def save_settings(profile_id: int, data: dict, user_id: int | None = None) -> di
               updated_at=excluded.updated_at
             """,
             (
-                user_id, profile_id, values["retention_mode"], values["retention_days"], values["retention_lines"], values["retention_interval_hours"],
+                owner_id, profile_id, values["retention_mode"], values["retention_days"], values["retention_lines"], values["retention_interval_hours"],
                 values["job_retention_mode"], values["job_retention_days"], values["job_retention_lines"], values["job_retention_interval_hours"], values["job_last_retention_run_at"], values["job_last_retention_deleted"],
                 values["operation_retention_mode"], values["operation_retention_days"], values["operation_retention_lines"], values["operation_retention_interval_hours"], values["operation_last_retention_run_at"], values["operation_last_retention_deleted"],
                 now, now,
@@ -478,29 +492,57 @@ def _apply_retention_category(conn, profile_id: int, settings: dict, category: s
 
 
 def _update_retention_metadata(conn, profile_id: int, category: str, deleted: int, settings: dict, user_id: int | None = None) -> None:
+    """Update last retention state on the shared profile settings row."""
     now = utcnow()
-    owner_id = int(settings.get("owner_user_id") or _user_id(user_id))
+    owner_id = _profile_settings_owner_id()
     profile_id = int(profile_id or 0)
     cur = conn.execute(
         f"""
         UPDATE operation_log_settings
         SET {category}_last_retention_run_at=?, {category}_last_retention_deleted=?, updated_at=?
-        WHERE profile_id=?
+        WHERE user_id=? AND profile_id=?
         """,
-        (now, int(deleted or 0), now, profile_id),
+        (now, int(deleted or 0), now, owner_id, profile_id),
     )
     if int(cur.rowcount or 0) == 0:
+        # Note: preserve legacy settings when creating the shared profile row lazily.
+        values = {
+            "retention_mode": _sanitize_mode(settings.get("retention_mode"), DEFAULT_SETTINGS["retention_mode"]),
+            "retention_days": _sanitize_days(settings.get("retention_days"), DEFAULT_SETTINGS["retention_days"]),
+            "retention_lines": _sanitize_lines(settings.get("retention_lines"), DEFAULT_SETTINGS["retention_lines"]),
+            "retention_interval_hours": _sanitize_interval(settings.get("retention_interval_hours"), DEFAULT_SETTINGS["retention_interval_hours"]),
+        }
+        for cat, defaults in DEFAULT_CATEGORY_SETTINGS.items():
+            values[f"{cat}_retention_mode"] = _sanitize_mode(settings.get(f"{cat}_retention_mode"), defaults["retention_mode"])
+            values[f"{cat}_retention_days"] = _sanitize_days(settings.get(f"{cat}_retention_days"), defaults["retention_days"])
+            values[f"{cat}_retention_lines"] = _sanitize_lines(settings.get(f"{cat}_retention_lines"), defaults["retention_lines"])
+            values[f"{cat}_retention_interval_hours"] = _sanitize_interval(settings.get(f"{cat}_retention_interval_hours"), defaults["retention_interval_hours"])
+            values[f"{cat}_last_retention_run_at"] = settings.get(f"{cat}_last_retention_run_at")
+            values[f"{cat}_last_retention_deleted"] = int(settings.get(f"{cat}_last_retention_deleted") or 0)
+        values[f"{category}_last_retention_run_at"] = now
+        values[f"{category}_last_retention_deleted"] = int(deleted or 0)
         conn.execute(
             """
-            INSERT INTO operation_log_settings(user_id, profile_id, created_at, updated_at)
-            VALUES(?,?,?,?)
-            ON CONFLICT(user_id, profile_id) DO UPDATE SET updated_at=excluded.updated_at
+            INSERT INTO operation_log_settings(
+              user_id, profile_id, retention_mode, retention_days, retention_lines,
+              retention_interval_hours,
+              job_retention_mode, job_retention_days, job_retention_lines, job_retention_interval_hours, job_last_retention_run_at, job_last_retention_deleted,
+              operation_retention_mode, operation_retention_days, operation_retention_lines, operation_retention_interval_hours, operation_last_retention_run_at, operation_last_retention_deleted,
+              created_at, updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(user_id, profile_id) DO UPDATE SET
+              job_last_retention_run_at=excluded.job_last_retention_run_at,
+              job_last_retention_deleted=excluded.job_last_retention_deleted,
+              operation_last_retention_run_at=excluded.operation_last_retention_run_at,
+              operation_last_retention_deleted=excluded.operation_last_retention_deleted,
+              updated_at=excluded.updated_at
             """,
-            (owner_id, profile_id, now, now),
-        )
-        conn.execute(
-            f"UPDATE operation_log_settings SET {category}_last_retention_run_at=?, {category}_last_retention_deleted=?, updated_at=? WHERE profile_id=?",
-            (now, int(deleted or 0), now, profile_id),
+            (
+                owner_id, profile_id, values["retention_mode"], values["retention_days"], values["retention_lines"], values["retention_interval_hours"],
+                values["job_retention_mode"], values["job_retention_days"], values["job_retention_lines"], values["job_retention_interval_hours"], values["job_last_retention_run_at"], values["job_last_retention_deleted"],
+                values["operation_retention_mode"], values["operation_retention_days"], values["operation_retention_lines"], values["operation_retention_interval_hours"], values["operation_last_retention_run_at"], values["operation_last_retention_deleted"],
+                now, now,
+            ),
         )
 
 

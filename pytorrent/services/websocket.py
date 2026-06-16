@@ -9,7 +9,7 @@ from .preferences import active_profile, get_profile
 from ..db import default_user_id
 from .torrent_cache import torrent_cache
 from .torrent_summary import cached_summary
-from . import rtorrent, smart_queue, traffic_history, automation_rules, torrent_stats, auth, speed_peaks, poller_control, download_planner
+from . import rtorrent, smart_queue, traffic_history, automation_rules, torrent_stats, auth, speed_peaks, poller_control, download_planner, profile_speed_limits
 
 
 def _profile_room(profile_id: int) -> str:
@@ -27,8 +27,9 @@ def _poller_profiles() -> list[dict]:
 
 
 def emit_profile_event(socketio, event: str, payload: dict, profile_id: int) -> None:
-    target = _profile_room(profile_id) if auth.enabled() else None
-    socketio.emit(event, payload, to=target) if target else socketio.emit(event, payload)
+    # Note: Profile-scoped events always go to the selected profile room, even when authentication is disabled.
+    scoped_payload = {**(payload or {}), "profile_id": int(profile_id)}
+    socketio.emit(event, scoped_payload, to=_profile_room(profile_id))
 
 
 def _emit_profile(socketio, event: str, payload: dict, profile_id: int) -> None:
@@ -37,13 +38,21 @@ def _emit_profile(socketio, event: str, payload: dict, profile_id: int) -> None:
 
 
 
+def _apply_configured_speed_limits(profile: dict) -> None:
+    limits = profile_speed_limits.get_limits(int(profile.get("id") or 0))
+    if not limits.get("configured"):
+        return
+    # Note: Profile-level speed limits are re-applied when the profile is opened so they are not tied to a specific user session.
+    rtorrent.set_limits(profile, limits.get("down"), limits.get("up"))
+
+
 def _run_slow_profile_tasks(socketio, profile: dict, profile_id: int) -> None:
     state = poller_control.state_for(profile_id)
     # Note: Background checks keep the profile owner so bypass/admin profiles do not enqueue jobs as the fallback user.
     profile_user_id = int(profile.get("user_id") or default_user_id())
     try:
         try:
-            torrent_stats.queue_refresh(socketio, profile, force=False, room=_profile_room(profile_id) if auth.enabled() else None)
+            torrent_stats.queue_refresh(socketio, profile, force=False, room=_profile_room(profile_id))
         except Exception as exc:
             _emit_profile(socketio, "torrent_stats_update", {"ok": False, "profile_id": profile_id, "error": str(exc)}, profile_id)
         try:
@@ -282,10 +291,14 @@ def register_socketio_handlers(socketio):
         if not profile:
             emit("profile_required", {"ok": True, "profiles": []})
             return
+        try:
+            _apply_configured_speed_limits(profile)
+        except Exception as exc:
+            emit("rtorrent_error", {"profile_id": profile["id"], "error": str(exc)})
         rows = torrent_cache.snapshot(profile["id"])
         emit("torrent_snapshot", {"profile_id": profile["id"], "torrents": rows, "summary": cached_summary(profile["id"], rows), "speed_status": _speed_status_from_rows(profile["id"], rows)})
-        emit("poller_settings", {"settings": poller_control.get_settings(int(profile["id"])), "runtime": poller_control.snapshot(int(profile["id"]))})
-        emit("download_plan_update", {"settings": download_planner.get_settings(int(profile["id"]))})
+        emit("poller_settings", {"profile_id": int(profile["id"]), "settings": poller_control.get_settings(int(profile["id"])), "runtime": poller_control.snapshot(int(profile["id"]))})
+        emit("download_plan_update", {"profile_id": int(profile["id"]), "settings": download_planner.get_settings(int(profile["id"]))})
 
     @socketio.on("select_profile")
     def handle_select_profile(data):
@@ -304,8 +317,12 @@ def register_socketio_handlers(socketio):
             emit("rtorrent_error", {"error": "Profile access denied or profile does not exist"})
             return
         join_room(_profile_room(profile_id))
+        try:
+            _apply_configured_speed_limits(profile)
+        except Exception as exc:
+            emit("rtorrent_error", {"profile_id": profile_id, "error": str(exc)})
         diff = torrent_cache.refresh(profile)
         rows = torrent_cache.snapshot(profile_id)
         emit("torrent_snapshot", {"profile_id": profile_id, "torrents": rows, "summary": cached_summary(profile_id, rows, force=True), "speed_status": _speed_status_from_rows(profile_id, rows), "error": diff.get("error", "")})
-        emit("poller_settings", {"settings": poller_control.get_settings(profile_id), "runtime": poller_control.snapshot(profile_id)})
-        emit("download_plan_update", {"settings": download_planner.get_settings(profile_id)})
+        emit("poller_settings", {"profile_id": profile_id, "settings": poller_control.get_settings(profile_id), "runtime": poller_control.snapshot(profile_id)})
+        emit("download_plan_update", {"profile_id": profile_id, "settings": download_planner.get_settings(profile_id)})

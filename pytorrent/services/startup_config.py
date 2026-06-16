@@ -61,7 +61,7 @@ def _apply_profile(socketio, profile: dict) -> None:
         return
     _applied_profiles.add(profile_id)
     _log_status(profile, "applied", "Saved rTorrent startup config overrides applied", result=result)
-    socketio.emit("rtorrent_config_applied", {"profile_id": profile_id, "result": result})
+    socketio.emit("rtorrent_config_applied", {"profile_id": profile_id, "result": result}, to=f"profile:{int(profile_id)}")
 
 
 def schedule_startup_config_apply(socketio, delay_seconds: int = 60, retry_seconds: int = 30, max_wait_seconds: int = 3600) -> None:
@@ -97,7 +97,7 @@ def schedule_startup_config_apply(socketio, delay_seconds: int = 60, retry_secon
                     action="rtorrent_config",
                     details={"error": str(exc)},
                 )
-                socketio.emit("rtorrent_config_applied", {"ok": False, "error": str(exc)})
+                socketio.emit("rtorrent_config_applied", {"ok": False, "profile_id": int(profile_id or 0), "error": str(exc)}, to=f"profile:{int(profile_id or 0)}" if profile_id else None)
             socketio.sleep(max(5, int(retry_seconds)))
 
     socketio.start_background_task(runner)

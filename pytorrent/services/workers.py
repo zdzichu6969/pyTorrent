@@ -42,8 +42,8 @@ def _emit(name: str, payload: dict):
     if not _socketio:
         return
     profile_id = payload.get("profile_id")
-    if auth.enabled() and profile_id:
-        # Note: Job/socket events are sent only to clients joined to the affected profile room.
+    if profile_id:
+        # Note: Job/socket events are profile-room scoped so modals and toasts do not leak between rTorrent profiles.
         _socketio.emit(name, payload, to=f"profile:{int(profile_id)}")
     else:
         _socketio.emit(name, payload)
@@ -359,9 +359,9 @@ def _emit_torrent_refresh(profile: dict, action_name: str) -> None:
         profile_id = int(profile["id"])
         if diff.get("ok"):
             rows = torrent_cache.snapshot(profile_id)
-            _emit("torrent_patch", {**diff, "summary": cached_summary(profile_id, rows, force=True)})
+            _emit("torrent_patch", {**diff, "profile_id": profile_id, "summary": cached_summary(profile_id, rows, force=True)})
         else:
-            _emit("rtorrent_error", diff)
+            _emit("rtorrent_error", {**diff, "profile_id": profile_id})
     except Exception as exc:
         # Note: A failed live refresh must not change the already completed job result.
         _emit("rtorrent_error", {"profile_id": int(profile.get("id") or 0), "error": str(exc)})

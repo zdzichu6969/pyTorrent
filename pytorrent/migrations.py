@@ -133,10 +133,26 @@ def migrate_operation_log_split_retention(conn: sqlite3.Connection) -> bool:
     return changed
 
 
+def migrate_profile_speed_limits_table(conn: sqlite3.Connection) -> bool:
+    existing = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='profile_speed_limits'").fetchone()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS profile_speed_limits (
+          profile_id INTEGER PRIMARY KEY,
+          down_limit INTEGER DEFAULT 0,
+          up_limit INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(profile_id) REFERENCES rtorrent_profiles(id) ON DELETE CASCADE
+        )
+    """)
+    return existing is None
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     migrate_disk_monitor_preferences_to_profile_scope,
     migrate_profile_preferences_sidebar_columns,
     migrate_operation_log_split_retention,
+    migrate_profile_speed_limits_table,
 )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ._shared import *
+from ..services import profile_speed_limits
 from ..services import pdf_preview_links, torrent_creator
 from ..services.reverse_dns import attach_reverse_dns
 
@@ -667,8 +668,10 @@ def speed_limits():
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
-    job_id = enqueue("set_limits", profile["id"], {"down": data.get("down"), "up": data.get("up")})
-    return ok({"job_id": job_id})
+    limits = profile_speed_limits.save_limits(profile["id"], data.get("down"), data.get("up"))
+    # Note: Manual speed limits are stored once per rTorrent profile, so every user opening this profile sees and applies the same values.
+    job_id = enqueue("set_limits", profile["id"], {"down": limits["down"], "up": limits["up"]})
+    return ok({"job_id": job_id, "limits": limits})
 
 
 def _user_disk_status(profile: dict) -> dict:

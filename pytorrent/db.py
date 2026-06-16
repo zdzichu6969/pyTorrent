@@ -372,6 +372,15 @@ CREATE TABLE IF NOT EXISTS traffic_history (
 
 CREATE INDEX IF NOT EXISTS idx_traffic_history_profile_created ON traffic_history(profile_id, created_at);
 
+CREATE TABLE IF NOT EXISTS profile_speed_limits (
+  profile_id INTEGER PRIMARY KEY,
+  down_limit INTEGER DEFAULT 0,
+  up_limit INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(profile_id) REFERENCES rtorrent_profiles(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS transfer_speed_peaks (
   profile_id INTEGER PRIMARY KEY,
   session_started_at TEXT NOT NULL,

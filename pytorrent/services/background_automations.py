@@ -4,7 +4,6 @@ import os
 import threading
 import time
 from typing import Any
-
 from ..db import connect, default_user_id
 from . import automation_rules, operation_logs, poller_control, rtorrent
 from .websocket import emit_profile_event

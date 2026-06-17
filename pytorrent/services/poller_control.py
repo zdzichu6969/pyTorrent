@@ -1,10 +1,8 @@
 from __future__ import annotations
-
 import json
 import time
 from dataclasses import dataclass, field
 from typing import Any
-
 from ..db import connect, utcnow
 from ..config import POLL_INTERVAL, MIN_POLL_INTERVAL_SECONDS
 
@@ -81,7 +79,6 @@ def normalize_settings(data: dict | None) -> dict:
         "recovery_after_errors": int(_coerce_float(raw.get("recovery_after_errors"), 3, 1, 20)),
     }
     if settings["safe_fallback_enabled"]:
-        # Note: Safe fallback keeps existing functionality, but prevents very aggressive polling from overloading rTorrent or the browser.
         for key, minimum in SAFE_FALLBACK_MINIMUMS.items():
             settings[key] = max(float(settings.get(key) or DEFAULTS[key]), float(minimum))
     return settings
@@ -91,7 +88,6 @@ def get_settings(profile_id: int) -> dict:
     with connect() as conn:
         row = conn.execute("SELECT settings_json FROM poller_settings WHERE profile_id=?", (int(profile_id),)).fetchone()
         if not row:
-            # Note: Existing installs stored profile poller settings in app_settings; migrate lazily on first read.
             legacy = conn.execute("SELECT value FROM app_settings WHERE key=?", (_key(profile_id),)).fetchone()
             if legacy:
                 try:
@@ -240,7 +236,6 @@ def should_heartbeat(now: float, settings: dict, state: ProfilePollState, change
 
 def mark_live_poll(state: ProfilePollState, started_at: float, ok: bool, error: str = "", updated_count: int = 0, requires_full_refresh: bool = False) -> None:
     now = time.monotonic()
-    # Note: Live poller diagnostics track only lightweight speed/status refreshes, not the full torrent snapshot loop.
     state.live_poll_count += 1
     state.last_live_duration_ms = round((now - started_at) * 1000.0, 2)
     state.last_live_updated_count = int(updated_count or 0)
@@ -254,7 +249,6 @@ def mark_live_poll(state: ProfilePollState, started_at: float, ok: bool, error: 
 
 def mark_list_poll(state: ProfilePollState, started_at: float, ok: bool, error: str = "", added_count: int = 0, updated_count: int = 0, removed_count: int = 0) -> None:
     now = time.monotonic()
-    # Note: List poller diagnostics are separate because this slower loop runs full torrent snapshot reconciliation.
     state.list_poll_count += 1
     state.last_list_duration_ms = round((now - started_at) * 1000.0, 2)
     state.last_list_added_count = int(added_count or 0)
@@ -269,7 +263,6 @@ def mark_list_poll(state: ProfilePollState, started_at: float, ok: bool, error: 
 
 def reset_runtime_stats(profile_id: int) -> dict:
     state = state_for(profile_id)
-    # Note: Cleanup resets diagnostic counters only; poller timers and saved settings keep running unchanged.
     state.tick_count = 0
     state.last_tick_ms = 0.0
     state.last_tick_gap_ms = 0.0
@@ -385,10 +378,19 @@ def mark_tick(state: ProfilePollState, started_at: float, active: bool, ok: bool
     return dict(state.stats)
 
 
-def snapshot(profile_id: int) -> dict:
+def snapshot(profile_id: int, settings: dict | None = None) -> dict:
     state = state_for(profile_id)
+    effective_settings = normalize_settings(settings) if settings is not None else get_settings(profile_id)
     data = dict(state.stats or {"profile_id": int(profile_id), "tick_count": state.tick_count})
-    # Note: Snapshot always exposes split-poller counters, even before the first post-cleanup tick rebuilds full stats.
+    runtime_ready = bool(state.stats) or state.tick_count > 0
+    data.setdefault("runtime_ready", runtime_ready)
+    data.setdefault("adaptive_enabled", bool(effective_settings.get("adaptive_enabled", DEFAULTS["adaptive_enabled"])))
+    data.setdefault("adaptive_mode", state.adaptive_mode if runtime_ready else ("fixed" if not data.get("adaptive_enabled") else "waiting"))
+    data.setdefault("live_stats_interval_seconds", effective_live_interval(effective_settings, state))
+    data.setdefault("torrent_list_interval_seconds", effective_list_interval(effective_settings, state))
+    data.setdefault("configured_min_interval_seconds", MIN_POLL_INTERVAL_SECONDS)
+    if not runtime_ready:
+        data["last_ok"] = None
     data.update({
         "live_poll_count": state.live_poll_count,
         "list_poll_count": state.list_poll_count,

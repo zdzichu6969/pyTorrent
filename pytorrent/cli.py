@@ -1,10 +1,8 @@
 from __future__ import annotations
-
 import argparse
 import getpass
 import sys
 import json
-
 from .db import connect, init_db, utcnow
 from .services.auth import password_hash
 from .services import tracker_cache

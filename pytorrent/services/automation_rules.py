@@ -23,8 +23,6 @@ def _check_lock(profile_id: int, rule_id: int | None = None) -> threading.Lock:
         return _CHECK_LOCKS[key]
 
 
-
-
 def _resolve_user_id(profile: dict[str, Any] | None = None, user_id: int | None = None) -> int:
     """Return a safe user id for rule ownership or background execution."""
     if user_id:

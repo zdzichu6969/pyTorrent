@@ -12,8 +12,6 @@ from ..services.preferences import get_preferences, list_profiles, active_profil
 from ..services import auth, pdf_preview_links, rtorrent
 from ..config import PYTORRENT_TMP_DIR, SMART_QUEUE_LABEL, SMART_QUEUE_STALLED_LABEL
 from ..services.frontend_assets import asset_path
-
-# for favicon
 from flask import current_app, send_from_directory
 
 bp = Blueprint("main", __name__)
@@ -22,8 +20,6 @@ bp = Blueprint("main", __name__)
 def _asset_url(key: str) -> str:
     path = asset_path(key)
     return path if path.startswith("http") else url_for("static", filename=path)
-
-
 
 
 def _attachment_headers(download_name: str, content_type: str = "application/octet-stream", disposition: str = "attachment") -> dict:

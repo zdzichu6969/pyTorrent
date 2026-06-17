@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 import json
 import time
 from datetime import datetime, timezone
-
 from ..db import connect, utcnow, default_user_id
 from . import auth, rtorrent
 from .workers import enqueue

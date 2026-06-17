@@ -1,12 +1,9 @@
 from __future__ import annotations
-
 import json
 import time
+import psutil
 from datetime import datetime, timezone
 from typing import Any
-
-import psutil
-
 from ..db import connect, default_user_id, utcnow
 from . import auth, operation_logs, rtorrent
 

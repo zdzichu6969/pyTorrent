@@ -1,11 +1,10 @@
 from __future__ import annotations
-
 from ._shared import *
 from ..services import operation_logs
 
 
 def _active_profile_or_400():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return None
     return profile

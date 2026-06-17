@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import json
 import re
 import socket
@@ -8,7 +7,6 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any
-
 from ..db import connect
 from . import preferences, rtorrent
 
@@ -44,7 +42,6 @@ def _public_ip(profile: dict | None = None, force: bool = False) -> str:
 
 def _parse_port_candidates(value: str, limit: int = MAX_PORT_CHECK_CANDIDATES) -> tuple[list[int], bool]:
     """Return valid incoming port candidates from rTorrent network.port_range."""
-    # Note: rTorrent can keep a range/list and pick a random port on start, so the checker tests all safe candidates.
     ports: list[int] = []
     seen: set[int] = set()
     truncated = False
@@ -136,7 +133,6 @@ def _check_ports(public_ip: str, ports: list[int], checker) -> dict:
 
 def port_check_status(profile: dict | None = None, force: bool = False, user_id: int | None = None) -> dict:
     """Return cached or freshly checked incoming-port status for one rTorrent profile."""
-    # Note: This service is shared by UI routes and the background worker, so browser startup is not required.
     profile = profile or preferences.active_profile(user_id)
     prefs = preferences.get_preferences(user_id, int(profile.get("id"))) if profile else preferences.get_preferences(user_id)
     enabled = bool((prefs or {}).get("port_check_enabled"))

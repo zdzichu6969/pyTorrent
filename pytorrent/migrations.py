@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timezone
-
 
 Migration = Callable[[sqlite3.Connection], bool]
 

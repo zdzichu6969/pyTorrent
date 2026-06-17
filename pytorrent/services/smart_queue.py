@@ -1,12 +1,10 @@
 from __future__ import annotations
-
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 import json
 import os
 import time
-
 from ..config import BASE_DIR, SMART_QUEUE_LABEL, SMART_QUEUE_STALLED_LABEL
 from ..db import connect, default_user_id, utcnow
 from . import rtorrent

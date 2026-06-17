@@ -1,11 +1,11 @@
 from __future__ import annotations
-
 from ._shared import *
+
 
 @bp.get('/smart-queue')
 def smart_queue_get():
     from ..services import smart_queue
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return ok({'settings': {}, 'exclusions': [], 'error': 'No profile'})
     try:
@@ -19,11 +19,10 @@ def smart_queue_get():
         return jsonify({'ok': False, 'error': str(exc), 'settings': {}, 'exclusions': []})
 
 
-
 @bp.post('/smart-queue')
 def smart_queue_save():
     from ..services import smart_queue
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return ok({'settings': {}, 'error': 'No profile'})
     try:
@@ -37,7 +36,7 @@ def smart_queue_save():
 
 @bp.post('/smart-queue/check')
 def smart_queue_check():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return ok({'result': {'ok': False, 'error': 'No profile'}})
     if str(request.args.get('sync') or '').lower() in {'1', 'true', 'yes'}:
@@ -66,7 +65,7 @@ def smart_queue_check():
 @bp.post('/smart-queue/exclusion')
 def smart_queue_exclusion():
     from ..services import smart_queue
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     data = request.get_json(silent=True) or {}
@@ -79,7 +78,7 @@ def smart_queue_exclusion():
 @bp.delete('/smart-queue/history')
 def smart_queue_history_clear():
     from ..services import smart_queue
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:

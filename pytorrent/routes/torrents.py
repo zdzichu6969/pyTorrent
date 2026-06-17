@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from ._shared import *
 from ..services import profile_speed_limits
 from ..services import pdf_preview_links, torrent_creator
@@ -7,7 +6,7 @@ from ..services.reverse_dns import attach_reverse_dns
 
 @bp.get("/torrents")
 def torrents():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return ok({"torrents": [], "summary": cached_summary(0, []), "error": "No rTorrent profile"})
     rows = torrent_cache.snapshot(profile["id"])
@@ -20,10 +19,9 @@ def torrents():
 
 
 
-
 @bp.get("/trackers/summary")
 def trackers_summary():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return ok({"summary": {"hashes": {}, "trackers": [], "errors": [], "scanned": 0, "pending": 0}, "error": "No profile"})
     try:
@@ -78,7 +76,7 @@ def tracker_favicon_query():
 
 @bp.get("/torrent-stats")
 def torrent_stats_get():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return ok({"stats": {}, "error": "No profile"})
     force = str(request.args.get("force") or "").lower() in {"1", "true", "yes"}
@@ -92,7 +90,7 @@ def torrent_stats_get():
 
 @bp.get("/torrents/<torrent_hash>/files")
 def torrent_files(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     return ok({"files": rtorrent.torrent_files(profile, torrent_hash)})
@@ -101,7 +99,7 @@ def torrent_files(torrent_hash: str):
 
 @bp.get("/torrents/<torrent_hash>/files/<int:file_index>/mediainfo")
 def torrent_file_media_info(torrent_hash: str, file_index: int):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -124,7 +122,7 @@ def torrent_file_media_info(torrent_hash: str, file_index: int):
 
 @bp.post("/torrents/<torrent_hash>/files/priority")
 def torrent_file_priority(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -139,7 +137,7 @@ def torrent_file_priority(torrent_hash: str):
 
 @bp.get("/torrents/<torrent_hash>/files/tree")
 def torrent_file_tree(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     return ok({"tree": rtorrent.torrent_file_tree(profile, torrent_hash)})
@@ -148,7 +146,7 @@ def torrent_file_tree(torrent_hash: str):
 
 @bp.post("/torrents/<torrent_hash>/files/folder-priority")
 def torrent_folder_priority(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -214,7 +212,7 @@ def _send_staged_file(profile: dict, path: str, download_name: str, local: bool 
 
 @bp.post("/torrents/<torrent_hash>/files/<int:file_index>/download-link")
 def torrent_file_download_link(torrent_hash: str, file_index: int):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -238,7 +236,7 @@ def torrent_file_download_link_from_body(torrent_hash: str):
 
 @bp.post("/torrents/<torrent_hash>/files/download.zip/link")
 def torrent_files_download_zip_link(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -254,7 +252,7 @@ def torrent_files_download_zip_link(torrent_hash: str):
 
 @bp.get("/torrents/<torrent_hash>/torrent-file/link")
 def torrent_file_export_link(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -267,7 +265,7 @@ def torrent_file_export_link(torrent_hash: str):
 
 @bp.post("/torrents/torrent-files.zip/link")
 def torrent_files_export_zip_link():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -284,7 +282,7 @@ def torrent_files_export_zip_link():
 
 @bp.get("/torrents/<torrent_hash>/files/<int:file_index>/download")
 def torrent_file_download(torrent_hash: str, file_index: int):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -377,7 +375,7 @@ def _stream_torrent_files_zip(profile: dict, items: list[dict]):
 
 @bp.post("/torrents/<torrent_hash>/files/download.zip")
 def torrent_files_download_zip(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -393,7 +391,7 @@ def torrent_files_download_zip(torrent_hash: str):
 
 @bp.get("/torrents/<torrent_hash>/torrent-file")
 def torrent_file_export(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -406,7 +404,7 @@ def torrent_file_export(torrent_hash: str):
 
 @bp.post("/torrents/torrent-files.zip")
 def torrent_files_export_zip():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -455,7 +453,7 @@ def torrent_files_export_zip():
 
 @bp.get("/torrents/<torrent_hash>/chunks")
 def torrent_chunks(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -467,7 +465,7 @@ def torrent_chunks(torrent_hash: str):
 
 @bp.post("/torrents/<torrent_hash>/chunks/<action_name>")
 def torrent_chunk_action(torrent_hash: str, action_name: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -480,7 +478,7 @@ def torrent_chunk_action(torrent_hash: str, action_name: str):
 
 @bp.get("/torrents/<torrent_hash>/peers")
 def torrent_peers(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     peers = rtorrent.torrent_peers(profile, torrent_hash)
@@ -496,7 +494,7 @@ def torrent_peers(torrent_hash: str):
 
 @bp.get("/torrents/<torrent_hash>/trackers")
 def torrent_trackers(torrent_hash: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     return ok({"trackers": rtorrent.torrent_trackers(profile, torrent_hash)})
@@ -505,7 +503,7 @@ def torrent_trackers(torrent_hash: str):
 
 @bp.post("/torrents/<torrent_hash>/trackers/<action_name>")
 def torrent_tracker_action(torrent_hash: str, action_name: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -518,7 +516,7 @@ def torrent_tracker_action(torrent_hash: str, action_name: str):
 
 @bp.post("/torrents/<action_name>")
 def torrent_action(action_name: str):
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -547,7 +545,7 @@ def torrent_action(action_name: str):
 
 @bp.post("/torrents/create")
 def torrent_create():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     form = request.form if request.content_type and request.content_type.startswith("multipart/form-data") else (request.get_json(silent=True) or {})
@@ -577,7 +575,7 @@ def torrent_create():
 
 @bp.post("/torrents/add")
 def torrent_add():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     job_ids = []
@@ -634,7 +632,7 @@ def torrent_add():
 
 @bp.post("/torrents/preview")
 def torrent_preview():
-    profile = preferences.active_profile()
+    profile = request_profile()
     existing_hashes = set()
     if profile:
         try:
@@ -664,7 +662,7 @@ def torrent_preview():
 
 @bp.post("/speed/limits")
 def speed_limits():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}

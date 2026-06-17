@@ -1,13 +1,10 @@
 from __future__ import annotations
-
 import logging
 import time
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
-
 from flask import Flask, g, request
-
 from .config import LOG_DIR, LOG_ENABLE, LOG_RETENTION_HOURS
 
 _CONFIGURED = False

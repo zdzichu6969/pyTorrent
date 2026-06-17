@@ -1,10 +1,8 @@
 from __future__ import annotations
-
 import json
 import threading
 import time
 from typing import Any
-
 from ..db import connect, utcnow
 from . import rtorrent
 from .torrent_cache import torrent_cache

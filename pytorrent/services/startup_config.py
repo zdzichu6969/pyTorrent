@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 import threading
 from time import monotonic
-
 from ..db import connect
 from . import operation_logs, rtorrent
 

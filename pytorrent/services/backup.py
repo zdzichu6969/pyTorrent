@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import json
 import threading
 import time
@@ -175,8 +174,8 @@ def create_app_backup(name: str, user_id: int | None = None, automatic: bool = F
 
 def create_profile_backup(name: str, profile_id: int, user_id: int | None = None, automatic: bool = False) -> dict:
     user_id = user_id or auth.current_user_id() or default_user_id()
-    if not auth.can_access_profile(profile_id, user_id):
-        raise PermissionError("No access to profile")
+    if not auth.can_write_profile(profile_id, user_id):
+        raise PermissionError("No write access to profile")
     payload = {"version": 2, "backup_type": "profile", "source_profile_id": int(profile_id), "created_at": utcnow(), "automatic": bool(automatic), "tables": {}}
     with connect() as conn:
         for table in PROFILE_BACKUP_TABLES:

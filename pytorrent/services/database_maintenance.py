@@ -1,11 +1,9 @@
 from __future__ import annotations
-
 import shutil
 import sqlite3
 import threading
 import time
 from typing import Any
-
 from ..config import DB_PATH
 
 _VACUUM_LOCK = threading.Lock()

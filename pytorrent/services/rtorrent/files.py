@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from .client import *
 from ...config import BASE_DIR
 
@@ -25,7 +24,6 @@ def torrent_files(profile: dict, torrent_hash: str) -> list[dict]:
 
 
 def torrent_file_tree(profile: dict, torrent_hash: str) -> dict:
-    # Note: The tree is built from rTorrent file paths without changing the existing flat file API.
     root = {"name": "", "path": "", "type": "directory", "size": 0, "children": {}}
     for item in torrent_files(profile, torrent_hash):
         parts = [part for part in str(item.get("path") or "").split("/") if part]

@@ -1,11 +1,10 @@
 from __future__ import annotations
-
 from ._shared import *
 from ..services import auth
 
 
-def _active_profile_id() -> int | None:
-    profile = preferences.active_profile()
+def _active_profile_id(require_write: bool = False) -> int | None:
+    profile = request_profile(require_write=require_write)
     return int(profile["id"]) if profile else None
 
 
@@ -27,7 +26,7 @@ def backup_list():
 @bp.post("/backup/profile")
 def backup_create_profile():
     data = request.get_json(silent=True) or {}
-    pid = _active_profile_id()
+    pid = _active_profile_id(require_write=True)
     if not pid:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -53,7 +52,6 @@ def backup_create_app():
 
 @bp.post("/backup")
 def backup_create():
-    # Note: Legacy endpoint now creates a profile backup so non-admin users cannot capture other users' settings.
     return backup_create_profile()
 
 
@@ -84,7 +82,7 @@ def profile_backup_settings_get():
 @bp.post("/backup/profile/settings")
 def profile_backup_settings_save():
     data = request.get_json(silent=True) or {}
-    pid = _active_profile_id()
+    pid = _active_profile_id(require_write=True)
     if not pid:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -104,7 +102,7 @@ def backup_preview(backup_id: int):
 @bp.post("/backup/<int:backup_id>/restore")
 def backup_restore(backup_id: int):
     try:
-        pid = _active_profile_id()
+        pid = _active_profile_id(require_write=True)
         return ok({"result": backup_service.restore_backup(backup_id, default_user_id(), profile_id=pid)})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 403 if isinstance(exc, PermissionError) else 400

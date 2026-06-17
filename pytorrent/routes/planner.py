@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
+from flask import jsonify, request
 
-from ..services import preferences, download_planner, poller_control
+from ._shared import bp, request_profile
+from ..services import download_planner, poller_control
 from ..services.auth import current_user_id
-
-bp = Blueprint("planner_api", __name__, url_prefix="/api")
-
 
 def ok(payload=None):
     data = {"ok": True}
@@ -16,7 +14,7 @@ def ok(payload=None):
 
 
 def _profile_or_error():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return None, (jsonify({"ok": False, "error": "No profile"}), 400)
     return profile, None
@@ -32,6 +30,7 @@ def download_planner_get():
 
 @bp.post("/download-planner")
 def download_planner_save():
+    # Note: Planner settings are saved through one canonical endpoint to keep the frontend/backend contract explicit.
     profile, error = _profile_or_error()
     if error:
         return error
@@ -95,7 +94,8 @@ def poller_settings_get():
     if error:
         return error
     pid = int(profile["id"])
-    return ok({"settings": poller_control.get_settings(pid), "runtime": poller_control.snapshot(pid)})
+    settings = poller_control.get_settings(pid)
+    return ok({"settings": settings, "runtime": poller_control.snapshot(pid, settings)})
 
 
 @bp.post("/poller/settings")

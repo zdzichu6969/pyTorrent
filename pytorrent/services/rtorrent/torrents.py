@@ -1,18 +1,14 @@
 from __future__ import annotations
-
 import time
-
 from .client import *
 from .files import set_file_priorities
 from .system import disk_usage_for_default_path
-
 
 XMLRPC_DEFAULT_SIZE_LIMIT_BYTES = 512 * 1024
 
 
 def _parse_xmlrpc_size_limit(value) -> int:
     """Parse rTorrent XML-RPC size values such as 524288, 16M or 8K."""
-    # Note: rTorrent accepts human suffixes in config files; UI validation normalizes them to bytes.
     text = str(value or '').strip().lower()
     if not text:
         return XMLRPC_DEFAULT_SIZE_LIMIT_BYTES
@@ -29,7 +25,6 @@ def _parse_xmlrpc_size_limit(value) -> int:
 
 def xmlrpc_size_limit(profile: dict) -> dict:
     """Return the current rTorrent XML-RPC request size limit."""
-    # Note: This value controls .torrent uploads because load.raw sends the torrent through XML-RPC.
     try:
         raw = client_for(profile).call('network.xmlrpc.size_limit')
         limit = _parse_xmlrpc_size_limit(raw)
@@ -40,7 +35,6 @@ def xmlrpc_size_limit(profile: dict) -> dict:
 
 def estimate_torrent_upload_request_size(data: bytes, start: bool = True, directory: str = '', label: str = '', file_priorities: list[dict] | None = None) -> int:
     """Estimate the XML-RPC body size produced by rTorrent load.raw* for a .torrent file."""
-    # Note: XML-RPC uses base64 for Binary payloads, so the request is larger than the raw .torrent file.
     commands = []
     if directory:
         commands.append(f'd.directory.set={directory}')
@@ -93,7 +87,6 @@ def _is_post_check_watched(profile_id: int, torrent_hash: str) -> bool:
     if age > _POST_CHECK_WATCH_TTL_SECONDS:
         _clear_post_check_watch(profile_id, torrent_hash)
         return False
-    # Note: A short grace period prevents labeling a recheck that was queued but has not visibly entered hashing yet.
     return age >= _POST_CHECK_WATCH_MIN_SECONDS
 
 
@@ -124,7 +117,6 @@ def clear_post_check_download_label(c: ScgiRtorrentClient, torrent_hash: str, cu
     labels = _label_names(str(label_source or ""))
     if POST_CHECK_DOWNLOAD_LABEL not in labels:
         return False
-    # Note: The temporary post-check label is removed only after the torrent leaves the stopped waiting queue.
     c.call("d.custom1.set", str(torrent_hash or ""), _label_value([label for label in labels if label != POST_CHECK_DOWNLOAD_LABEL]))
     return True
 
@@ -151,11 +143,9 @@ def _cleanup_post_check_label_if_ready(c: ScgiRtorrentClient, row: dict) -> bool
     if POST_CHECK_DOWNLOAD_LABEL not in labels:
         return False
     status = str(row.get("status") or "").lower()
-    # Note: rTorrent may report state=1 after a recheck even when the download is not really active yet.
     started_after_wait = bool(int(row.get("state") or 0)) and bool(int(row.get("active") or 0)) and status != "checking"
     if not (_row_progress_complete(row) or status == "seeding" or started_after_wait):
         return False
-    # Note: Keep the post-check label while the torrent is stopped; remove it once it is started for download/seeding.
     clear_post_check_download_label(c, str(row.get("hash") or ""), str(row.get("label") or ""))
     row["label"] = _without_post_check_download_label(str(row.get("label") or ""))
     return True
@@ -183,7 +173,6 @@ def apply_post_check_policy(profile: dict, rows: list[dict], previous_rows: dict
         complete = _row_progress_complete(row)
         try:
             if complete:
-                # Note: A fully checked torrent is started with the same helper as the manual Start action so it seeds immediately.
                 start_result = start_or_resume_hash(c, h)
                 clear_post_check_download_label(c, h, str(row.get("label") or ""))
                 row.update({"state": 1, "active": 1, "paused": False, "status": "Seeding", "label": _without_post_check_download_label(str(row.get("label") or ""))})
@@ -193,7 +182,6 @@ def apply_post_check_policy(profile: dict, rows: list[dict], previous_rows: dict
                 if POST_CHECK_DOWNLOAD_LABEL not in labels:
                     labels.append(POST_CHECK_DOWNLOAD_LABEL)
                 label_value = _label_value(labels)
-                # Note: Incomplete torrents are left stopped after check so Smart Queue can start them later within the global limit.
                 c.call("d.stop", h)
                 try:
                     c.call("d.close", h)
@@ -229,7 +217,6 @@ LIVE_TORRENT_FIELDS = [
 
 
 def human_duration(seconds: int) -> str:
-    # Note: Download ETA is derived locally from remaining bytes and current download speed.
     seconds = max(0, int(seconds or 0))
     if seconds <= 0:
         return '-'
@@ -256,12 +243,8 @@ def normalize_row(row: list) -> dict:
     base_path = str(row[15] or "")
     state = int(row[2] or 0)
     complete = int(row[3] or 0)
-    # Note: is_multi_file is needed before status calculation because the display path hides the torrent root for multi-file payloads.
     is_multi_file = int(row[24] or 0) if len(row) > 24 else 0
 
-    # Show the selected download location only. Hide the torrent root
-    # directory for multi-file torrents and the filename for single-file
-    # torrents. Data deletion still uses the full d.base_path elsewhere.
     if base_path and base_path != "/":
         display_parent = posixpath.dirname(base_path.rstrip("/")) or "/"
         display_path = display_parent.rstrip("/") + "/" if display_parent != "/" else display_parent
@@ -280,20 +263,15 @@ def normalize_row(row: list) -> dict:
     is_open = int(row[23] or 0) if len(row) > 23 else int(is_active or state)
     last_activity = int(row[25] or 0) if len(row) > 25 else 0
     if not last_activity and (down_rate > 0 or up_rate > 0):
-        # Note: rTorrent builds without d.timestamp.last_active still expose live rates, so active rows get a safe current timestamp.
         last_activity = int(time.time())
     completed_at = int(row[26] or 0) if len(row) > 26 else 0
-    # Note: d.hashing is authoritative; stale "hash check complete" messages must not keep the UI in Checking forever.
     is_checking = bool(hashing) or _message_indicates_active_check(msg_l)
     post_check = POST_CHECK_DOWNLOAD_LABEL in _label_names(str(row[17] or "")) and not is_checking and not bool(is_active)
-    # Note: rTorrent exposes queued/inactive torrents with the same runtime flags that older UI code called paused.
-    # The app marks only explicit user Pause requests with py_manual_pause so queued rows stay separate.
     is_paused = manual_pause and not is_checking and not post_check
     is_queued = bool(state) and bool(is_open) and not bool(is_active) and not bool(complete) and not is_paused and not is_checking and not post_check
-    # Note: Post-check and Queued are application-level UI statuses; rTorrent itself mainly exposes flags.
     status = "Checking" if is_checking else "Post-check" if post_check else "Paused" if is_paused else "Queued" if is_queued else "Seeding" if complete and state else "Downloading" if state else "Stopped"
     to_download_bytes = remaining_bytes if not complete else 0
-    # Note: The To download column is only meaningful for incomplete torrents; complete rows expose an empty display value.
+
     return {
         "hash": str(row[0] or ""),
         "name": str(row[1] or ""),
@@ -338,7 +316,6 @@ def normalize_row(row: list) -> dict:
 
 def normalize_live_row(row: list) -> dict:
     """Normalize the small row used by the fast live stats poller."""
-    # Note: The live poller intentionally reads only volatile fields so the main list poller can run less often.
     size = int(row[3] or 0)
     completed = int(row[4] or 0)
     complete = int(row[2] or 0)
@@ -406,11 +383,8 @@ def list_torrents(profile: dict) -> list[dict]:
     try:
         rows = c.d.multicall2("", "main", *(TORRENT_FIELDS + TORRENT_OPTIONAL_FIELDS))
     except Exception:
-        # Keep compatibility with older rTorrent builds that do not expose optional timestamp fields.
         rows = c.d.multicall2("", "main", *TORRENT_FIELDS)
     return [normalize_row(list(row)) for row in rows]
-
-
 
 
 def torrent_peers(profile: dict, torrent_hash: str) -> list[dict]:
@@ -444,8 +418,6 @@ def torrent_peers(profile: dict, torrent_hash: str) -> list[dict]:
     return peers
 
 
-
-
 def _call_first(c: ScgiRtorrentClient, candidates: list[tuple[str, tuple]]) -> dict:
     errors = []
     for method, args in candidates:
@@ -455,7 +427,6 @@ def _call_first(c: ScgiRtorrentClient, candidates: list[tuple[str, tuple]]) -> d
         except Exception as exc:
             errors.append(f"{method}: {exc}")
     raise RuntimeError("; ".join(errors))
-
 
 
 def _tracker_domain(url: str) -> str:
@@ -471,7 +442,6 @@ def _tracker_domain(url: str) -> str:
 
 def tracker_summary(profile: dict, torrent_hashes: list[str] | None = None, limit: int = 1000) -> dict:
     """Return tracker domains grouped by torrent for the sidebar filter."""
-    # Note: Tracker summary is read-only and isolated from the normal torrent snapshot, so slow tracker RPC calls cannot break the main list.
     hashes = [str(h or '').strip() for h in (torrent_hashes or []) if str(h or '').strip()]
     if not hashes:
         hashes = [t.get('hash') for t in list_torrents(profile) if t.get('hash')]

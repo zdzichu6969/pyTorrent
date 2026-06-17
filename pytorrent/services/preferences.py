@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 import json
-
 from ..db import connect, utcnow, default_user_id
 from . import auth
 from .frontend_assets import BOOTSTRAP_THEME_LABELS
@@ -28,7 +26,6 @@ FONT_FAMILIES = {
     "adwaita-mono": "Adwaita Mono",
 }
 
-# Note: Backend owns the recommended torrent table layout so frontend builds do not duplicate presets.
 RECOMMENDED_TABLE_COLUMNS = {
     "hidden": ["hash", "priority", "hashing", "active", "message", "complete", "state", "ratio_group"],
     "shown": ["down_total", "to_download", "up_total", "created"],
@@ -491,9 +488,9 @@ def get_preferences(user_id: int | None = None, profile_id: int | None = None):
     merged.update(get_disk_monitor_preferences(profile_id, user_id))
     return merged
 
-def save_preferences(data: dict, user_id: int | None = None):
+def save_preferences(data: dict, user_id: int | None = None, profile_id: int | None = None):
     user_id = user_id or auth.current_user_id() or default_user_id()
-    profile_id = _active_profile_id_for_user(user_id)
+    profile_id = profile_id or _active_profile_id_for_user(user_id)
     allowed_theme = data.get("theme") if data.get("theme") in {"light", "dark"} else None
     bootstrap_theme = data.get("bootstrap_theme") if data.get("bootstrap_theme") in BOOTSTRAP_THEMES else None
     font_family = data.get("font_family") if data.get("font_family") in FONT_FAMILIES else None

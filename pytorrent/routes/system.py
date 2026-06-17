@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from ._shared import *
 import posixpath
 from ..services import operation_logs
@@ -7,7 +6,7 @@ from ..services.frontend_assets import static_hash
 
 @bp.get("/system/disk")
 def system_disk():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"})
     try:
@@ -19,7 +18,7 @@ def system_disk():
 
 @bp.get("/system/status")
 def system_status():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"})
     try:
@@ -27,7 +26,6 @@ def system_status():
         status["disk"] = _user_disk_status(profile)
         if bool(profile.get("is_remote")):
             try:
-                # Note: Remote profiles must report CPU/RAM from the rTorrent host, not hide the footer stats.
                 usage = rtorrent.remote_system_usage(profile)
                 status.update(usage)
                 status["usage_available"] = True
@@ -40,7 +38,6 @@ def system_status():
             status["ram"] = psutil.virtual_memory().percent
             status["usage_source"] = "local"
             status["usage_available"] = True
-        # Note: REST status returns the latest records without waiting for the next Socket.IO message.
         status["speed_peaks"] = speed_peaks.record(profile["id"], status.get("down_rate", 0), status.get("up_rate", 0))
         return ok({"status": status})
     except Exception as exc:
@@ -80,7 +77,7 @@ def health_check_nagios():
 @bp.get("/app/status")
 def app_status():
     started = time.perf_counter()
-    profile = preferences.active_profile()
+    profile = request_profile()
     proc = psutil.Process(os.getpid())
     try:
         jobs = list_jobs(10, 0)
@@ -120,6 +117,12 @@ def app_status():
             status["speed_peaks"] = speed_peaks.current(profile["id"])
         except Exception as exc:
             status["speed_peaks"] = {"error": str(exc)}
+        try:
+            # Note: App status carries poller settings and runtime so the panel still renders when the separate poller endpoint is unavailable.
+            poller_settings = poller_control.get_settings(int(profile["id"]))
+            status["poller"] = {"settings": poller_settings, "runtime": poller_control.snapshot(int(profile["id"]), poller_settings)}
+        except Exception as exc:
+            status["poller"] = {"settings": {}, "runtime": {}, "error": str(exc)}
     try:
         prefs = preferences.get_preferences()
         status["port_check"] = {"status": "disabled", "enabled": False} if not bool((prefs or {}).get("port_check_enabled")) else port_check_status(force=False)
@@ -178,7 +181,7 @@ def cleanup_status():
 
 @bp.post("/cleanup/cache")
 def cleanup_profile_cache():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     profile_id = int(profile["id"])
@@ -225,7 +228,7 @@ def cleanup_database_vacuum():
 
 @bp.post("/cleanup/smart-queue")
 def cleanup_smart_queue():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     profile_id = int(profile["id"])
@@ -243,7 +246,7 @@ def cleanup_smart_queue():
 
 @bp.post("/cleanup/operation-logs")
 def cleanup_operation_logs():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     # Note: Operation log cleanup removes only profile-scoped log entries; torrents, jobs and settings stay intact.
@@ -254,7 +257,7 @@ def cleanup_operation_logs():
 
 @bp.post("/cleanup/planner")
 def cleanup_planner():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     # Note: Planner cleanup removes only the active profile action history, not saved Planner settings.
@@ -264,7 +267,7 @@ def cleanup_planner():
 
 @bp.post("/cleanup/automations")
 def cleanup_automations():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     profile_id = int(profile["id"])
@@ -284,7 +287,7 @@ def cleanup_automations():
 
 @bp.post("/cleanup/poller-diagnostics")
 def cleanup_poller_diagnostics():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     profile_id = int(profile["id"])
@@ -295,7 +298,7 @@ def cleanup_poller_diagnostics():
 @bp.post("/cleanup/all")
 def cleanup_all():
     deleted_jobs = clear_jobs()
-    active_profile = preferences.active_profile()
+    active_profile = request_profile()
     active_profile_id = int(active_profile["id"]) if active_profile else 0
     deleted_logs = operation_logs.clear(active_profile_id) if active_profile_id else 0
     deleted_planner = download_planner.clear_history(active_profile_id) if active_profile_id else 0
@@ -371,7 +374,7 @@ def _annotate_path_directories(profile: dict, payload: dict) -> dict:
 
 @bp.get("/path/default")
 def path_default():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -383,7 +386,7 @@ def path_default():
 
 @bp.get("/path/browse")
 def path_browse():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     base = request.args.get("path") or ""
@@ -395,7 +398,7 @@ def path_browse():
 
 @bp.post("/path/directories")
 def path_directory_create():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     require_profile_write(profile.get("id"))
@@ -410,7 +413,7 @@ def path_directory_create():
 
 @bp.post("/path/directories/rename")
 def path_directory_rename():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     require_profile_write(profile.get("id"))
@@ -429,7 +432,7 @@ def path_directory_rename():
 
 @bp.get('/rtorrent-config')
 def rtorrent_config_get():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -440,7 +443,7 @@ def rtorrent_config_get():
 
 @bp.post('/rtorrent-config')
 def rtorrent_config_save():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -457,7 +460,7 @@ def rtorrent_config_save():
 
 @bp.post('/rtorrent-config/reset')
 def rtorrent_config_reset():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -468,7 +471,7 @@ def rtorrent_config_reset():
 
 @bp.post('/rtorrent-config/generate')
 def rtorrent_config_generate():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -481,7 +484,7 @@ def rtorrent_config_generate():
 @bp.get('/traffic/history')
 def traffic_history_get():
     from ..services import traffic_history
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return ok({'history': {'range': request.args.get('range') or '7d', 'bucket': 'day', 'rows': []}})
     range_name = request.args.get('range') or '7d'

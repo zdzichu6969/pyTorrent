@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from .client import *
 
 RTORRENT_CONFIG_FIELDS = [

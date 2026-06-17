@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from copy import deepcopy
 from threading import RLock
 from time import time

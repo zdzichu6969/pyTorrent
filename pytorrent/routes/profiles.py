@@ -1,12 +1,19 @@
 from __future__ import annotations
-
 from ._shared import *
 from ..services.rtorrent.diagnostics import profile_diagnostics
 from ..services import auth
 
 @bp.get("/profiles")
 def profiles_list():
-    return ok({"profiles": preferences.list_profiles(), "active": preferences.active_profile()})
+    profiles = []
+    for row in preferences.list_profiles():
+        item = dict(row)
+        settings = backup_service.get_auto_backup_settings(default_user_id(), "profile", int(item.get("id") or 0))
+        item["profile_backup_enabled"] = bool(settings.get("enabled"))
+        item["profile_backup_interval_hours"] = settings.get("interval_hours")
+        item["profile_backup_retention_days"] = settings.get("retention_days")
+        profiles.append(item)
+    return ok({"profiles": profiles, "active": preferences.active_profile()})
 
 
 
@@ -16,7 +23,6 @@ def profiles_create():
         return ok({"profile": preferences.save_profile(request.json or {})})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-
 
 
 @bp.put("/profiles/<int:profile_id>")
@@ -89,25 +95,25 @@ def profiles_import():
 
 @bp.get("/preferences")
 def prefs_get():
-    return ok({"preferences": preferences.get_preferences()})
+    return ok({"preferences": preferences.get_preferences(profile_id=request_profile_id())})
 
 
 
 @bp.post("/preferences")
 def prefs_save():
-    return ok({"preferences": preferences.save_preferences(request.json or {})})
+    return ok({"preferences": preferences.save_preferences(request.json or {}, profile_id=request_profile_id(require_write=True))})
 
 
 @bp.post("/preferences/table-columns/recommended")
 def prefs_table_columns_recommended():
     # Note: Applies the backend-owned recommended desktop and mobile column layout.
-    return ok({"preferences": preferences.apply_recommended_table_columns()})
+    return ok({"preferences": preferences.apply_recommended_table_columns(profile_id=request_profile_id(require_write=True))})
 
 
 
 @bp.get("/labels")
 def labels_list():
-    profile = preferences.active_profile()
+    profile = request_profile()
     pid = profile["id"] if profile else None
     if not pid:
         return ok({"labels": []})
@@ -128,7 +134,7 @@ def labels_list():
 
 @bp.post("/labels")
 def labels_save():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -150,7 +156,7 @@ def labels_save():
 
 @bp.delete("/labels/<int:label_id>")
 def labels_delete(label_id: int):
-    profile = preferences.active_profile()
+    profile = request_profile()
     pid = profile["id"] if profile else None
     if not pid or not auth.can_write_profile(int(pid), default_user_id()):
         return jsonify({"ok": False, "error": "No write access to profile"}), 403
@@ -162,7 +168,7 @@ def labels_delete(label_id: int):
 
 @bp.get("/ratio-groups")
 def ratio_groups_list():
-    profile = preferences.active_profile()
+    profile = request_profile()
     pid = profile["id"] if profile else None
     with connect() as conn:
         rows = conn.execute(
@@ -182,7 +188,7 @@ def ratio_groups_list():
 
 @bp.post("/ratio-groups")
 def ratio_groups_save():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
@@ -210,9 +216,25 @@ def ratio_groups_save():
 
 
 
+@bp.delete("/ratio-groups/<int:group_id>")
+def ratio_groups_delete(group_id: int):
+    profile = request_profile()
+    if not profile:
+        return jsonify({"ok": False, "error": "No profile"}), 400
+    if not auth.can_write_profile(int(profile["id"]), default_user_id()):
+        return jsonify({"ok": False, "error": "No write access to profile"}), 403
+    with connect() as conn:
+        # Note: Deleting a ratio group removes only the group definition and its assignment links; history stays as an audit trail.
+        deleted = conn.execute("DELETE FROM ratio_groups WHERE id=? AND profile_id=?", (int(group_id), int(profile["id"]))).rowcount
+        conn.execute("DELETE FROM ratio_assignments WHERE group_id=? AND profile_id=?", (int(group_id), int(profile["id"])))
+    if not deleted:
+        return jsonify({"ok": False, "error": "Ratio group not found"}), 404
+    return ratio_groups_list()
+
+
 @bp.post("/ratio-groups/check")
 def ratio_groups_check():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     return ok({"result": ratio_rules.check(profile, default_user_id())})

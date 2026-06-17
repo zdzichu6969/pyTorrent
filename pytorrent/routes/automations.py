@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from ._shared import *
 
 
@@ -10,7 +9,7 @@ def _automation_user_id() -> int:
 @bp.get('/automations')
 def automations_get():
     from ..services import automation_rules
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return ok({'rules': [], 'history': [], 'error': 'No profile'})
     try:
@@ -26,7 +25,7 @@ def automations_get():
 @bp.get('/automations/export')
 def automations_export():
     from ..services import automation_rules
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -39,7 +38,7 @@ def automations_export():
 @bp.post('/automations/import')
 def automations_import():
     from ..services import automation_rules
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -55,7 +54,7 @@ def automations_import():
 @bp.post('/automations')
 def automations_save():
     from ..services import automation_rules
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -69,7 +68,7 @@ def automations_save():
 @bp.delete('/automations/<int:rule_id>')
 def automations_delete(rule_id: int):
     from ..services import automation_rules
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -83,7 +82,7 @@ def automations_delete(rule_id: int):
 @bp.post('/automations/<int:rule_id>/run')
 def automations_run_rule(rule_id: int):
     from ..services import automation_rules
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -100,7 +99,7 @@ def automations_run_rule(rule_id: int):
 @bp.post('/automations/check')
 def automations_check():
     from ..services import automation_rules
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:
@@ -117,7 +116,7 @@ def automations_check():
 @bp.delete('/automations/history')
 def automations_history_clear():
     from ..services import automation_rules
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({'ok': False, 'error': 'No profile'}), 400
     try:

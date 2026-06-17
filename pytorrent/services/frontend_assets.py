@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from pathlib import Path
-
 from ..config import BASE_DIR, USE_OFFLINE_LIBS
 
 LIBS_STATIC_DIR = "libs"

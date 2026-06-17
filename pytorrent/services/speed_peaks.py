@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 import threading
 from typing import Any
-
 from ..db import connect, utcnow
 from .rtorrent import human_rate
 

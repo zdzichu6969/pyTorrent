@@ -1,10 +1,8 @@
 from __future__ import annotations
-
 from ._shared import *
 
-
 def _active_profile_or_400():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return None
     return profile
@@ -117,7 +115,7 @@ def rss_rule_test():
 
 @bp.post("/rss/check")
 def rss_check():
-    profile = preferences.active_profile()
+    profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     return ok(rss_service.check(profile, only_due=False))

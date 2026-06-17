@@ -124,10 +124,8 @@ def create_app() -> Flask:
 
     from .routes.main import bp as main_bp
     from .routes.api import bp as api_bp
-    from .routes.planner import bp as planner_api_bp
     app.register_blueprint(main_bp)
     app.register_blueprint(api_bp)
-    app.register_blueprint(planner_api_bp)
     register_error_pages(app)
     init_db()
     from .services.speed_peaks import load_cache

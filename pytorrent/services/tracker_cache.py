@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import json
 import mimetypes
 import re
@@ -11,7 +10,6 @@ import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
-
 from ..config import BASE_DIR
 from ..db import connect, utcnow
 

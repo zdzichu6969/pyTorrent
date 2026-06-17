@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import base64
 import os
 import platform
@@ -19,11 +18,10 @@ import threading
 from pathlib import Path
 from urllib.parse import quote
 from flask import Blueprint, jsonify, request, abort, send_file, redirect, Response, stream_with_context, url_for
-# Note: url_for is exported through this shared module for API routes that build temporary in-app links.
 from ..config import DB_PATH, JOBS_RETENTION_DAYS, SMART_QUEUE_HISTORY_RETENTION_DAYS, LOG_RETENTION_DAYS, WORKERS, PYTORRENT_TMP_DIR
 from ..db import connect, utcnow
 from ..services.auth import current_user_id as default_user_id, current_user, list_users, save_user, delete_user, login_user, logout_user, enabled as auth_enabled, require_profile_write, require_admin, is_admin
-from ..services import preferences, rtorrent, torrent_stats, speed_peaks, tracker_cache, rss as rss_service, ratio_rules, backup as backup_service, download_planner, operation_logs, poller_control, database_maintenance
+from ..services import auth, preferences, rtorrent, torrent_stats, speed_peaks, tracker_cache, rss as rss_service, ratio_rules, backup as backup_service, download_planner, operation_logs, poller_control, database_maintenance
 from ..services.torrent_cache import torrent_cache
 from ..services.torrent_summary import cached_summary
 from ..services.workers import enqueue, list_jobs, cancel_job, retry_job, force_job, clear_jobs, emergency_clear_jobs
@@ -34,9 +32,91 @@ bp = Blueprint("api", __name__, url_prefix="/api")
 
 MOVE_BULK_MAX_HASHES = 100
 
-
 from .auth_api import register_auth_routes
 register_auth_routes(bp)
+
+
+def _request_profile_selector() -> tuple[int | None, str]:
+    """Return the optional rTorrent profile selector supplied by external API clients."""
+    payload = {}
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        try:
+            payload = request.get_json(silent=True) or {}
+        except Exception:
+            payload = {}
+
+    profile_id = (
+        request.args.get("profile_id")
+        or request.form.get("profile_id")
+        or payload.get("rtorrent_profile_id")
+        or request.headers.get("X-PyTorrent-Profile-Id")
+    )
+    profile_name = (
+        request.args.get("profile_name")
+        or request.form.get("profile_name")
+        or payload.get("rtorrent_profile_name")
+        or request.headers.get("X-PyTorrent-Profile-Name")
+        or ""
+    )
+
+    try:
+        return (int(profile_id), "") if profile_id not in (None, "") else (None, str(profile_name or "").strip())
+    except (TypeError, ValueError):
+        raise ValueError("profile_id must be an integer")
+
+
+def _profile_by_name(profile_name: str, user_id: int | None = None):
+    name = str(profile_name or "").strip()
+    if not name:
+        return None
+    user_id = user_id or default_user_id()
+    visible = auth.visible_profile_ids(user_id)
+    with connect() as conn:
+        if visible is None:
+            return conn.execute(
+                "SELECT * FROM rtorrent_profiles WHERE lower(name)=lower(?) ORDER BY is_default DESC, id LIMIT 1",
+                (name,),
+            ).fetchone()
+        if not visible:
+            return None
+        placeholders = ",".join("?" for _ in visible)
+        return conn.execute(
+            f"SELECT * FROM rtorrent_profiles WHERE id IN ({placeholders}) AND lower(name)=lower(?) ORDER BY is_default DESC, id LIMIT 1",
+            (*tuple(visible), name),
+        ).fetchone()
+
+
+def request_profile(require_write: bool = False):
+    """Resolve API profile context from profile_id/profile_name, then active profile for compatibility."""
+    try:
+        profile_id, profile_name = _request_profile_selector()
+    except ValueError:
+        raise
+    user_id = default_user_id()
+    profile = None
+    if profile_id:
+        profile = preferences.get_profile(int(profile_id), user_id)
+    elif profile_name:
+        profile = _profile_by_name(profile_name, user_id)
+    else:
+        profile = preferences.active_profile(user_id)
+        if not profile and auth.can_access_profile(1, user_id):
+            profile = preferences.get_profile(1, user_id)
+    if not profile and (profile_id or profile_name):
+        abort(404)
+    if not profile:
+        return None
+    pid = int(profile["id"])
+    if require_write and not auth.can_write_profile(pid, user_id):
+        abort(403)
+    if not require_write and not auth.can_access_profile(pid, user_id):
+        abort(403)
+    return profile
+
+
+def request_profile_id(require_write: bool = False) -> int | None:
+    profile = request_profile(require_write=require_write)
+    return int(profile["id"]) if profile else None
 
 
 def _job_profile_id(job_id: str) -> int | None:
@@ -51,11 +131,7 @@ def ok(payload=None):
     return jsonify(data)
 
 
-
 from ..services.port_check import port_check_status
-
-
-
 
 
 def _safe_len(callable_obj) -> int | None:
@@ -189,13 +265,11 @@ def enrich_bulk_payload(profile: dict, action_name: str, data: dict) -> dict:
 
 
 def _chunk_hashes(hashes: list[str], size: int = MOVE_BULK_MAX_HASHES) -> list[list[str]]:
-    # Note: Splits very large torrent selections into predictable chunks so each queued job stays small and recoverable.
     safe_size = max(1, int(size or MOVE_BULK_MAX_HASHES))
     return [hashes[index:index + safe_size] for index in range(0, len(hashes), safe_size)]
 
 
 def enqueue_bulk_parts(profile: dict, action_name: str, data: dict) -> list[dict]:
-    # Note: One shared helper splits large move/remove operations into small ordered parts without changing other actions.
     base_payload = enrich_bulk_payload(profile, action_name, data)
     hashes = base_payload.get("hashes") or []
     chunks = _chunk_hashes(hashes)
@@ -225,17 +299,14 @@ def enqueue_bulk_parts(profile: dict, action_name: str, data: dict) -> list[dict
 
 
 def enqueue_move_bulk_parts(profile: dict, data: dict) -> list[dict]:
-    # Note: Keep the old public move helper while using the same partitioning logic.
     return enqueue_bulk_parts(profile, "move", data)
 
 
 def enqueue_remove_bulk_parts(profile: dict, data: dict) -> list[dict]:
-    # Note: Remove/rm uses the same partitioning as move, which lowers rTorrent load.
     return enqueue_bulk_parts(profile, "remove", data)
 
 
 def _user_disk_status(profile: dict) -> dict:
-    # Note: Disk usage is user-preference aware, so it is read separately from the shared Socket.IO poller.
     prefs = preferences.get_disk_monitor_preferences(profile.get("id") if profile else None)
     try:
         paths = json.loads((prefs or {}).get("disk_monitor_paths_json") or "[]") if prefs else []
@@ -249,6 +320,4 @@ def _user_disk_status(profile: dict) -> dict:
     )
 
 
-
-# Note: Route modules import shared helpers with wildcard imports; include private helper names intentionally.
 __all__ = [name for name in globals() if not name.startswith('__')]

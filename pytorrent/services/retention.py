@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
-
 from ..config import JOBS_RETENTION_DAYS, LOG_RETENTION_DAYS, SMART_QUEUE_HISTORY_RETENTION_DAYS, TRAFFIC_HISTORY_RETENTION_DAYS
 from ..db import connect
 

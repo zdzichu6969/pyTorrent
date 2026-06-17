@@ -1,11 +1,8 @@
 from __future__ import annotations
-
 from functools import wraps
 from typing import Any
 import secrets
-
 from urllib.parse import urlparse
-
 from flask import abort, g, has_request_context, jsonify, redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -39,8 +36,6 @@ RTORRENT_WRITE_PREFIXES = (
 )
 RTORRENT_CONFIG_PREFIXES = ("/api/rtorrent-config",)
 ADMIN_PREFIXES = ("/api/auth/users", "/api/profiles")
-# Note: API reads that expose rTorrent/profile data must also respect profile permissions.
-# Note: Planner, poller and operation-log endpoints are profile-scoped and must follow the active profile context.
 PROFILE_READ_PREFIXES = (
     "/api/torrents",
     "/api/torrent-stats",
@@ -101,7 +96,6 @@ def _host_matches_bypass(host: str) -> bool:
 
 
 def auth_bypassed_request() -> bool:
-    # Note: Allows trusted direct-IP access to keep auth enabled for reverse-proxy traffic.
     if not enabled() or not AUTH_BYPASS_HOSTS or not has_request_context():
         return False
     return _host_matches_bypass(request.host)
@@ -115,7 +109,6 @@ def bypass_user_id() -> int:
         row = conn.execute("SELECT id FROM users WHERE username=? AND is_active=1", (username,)).fetchone()
         if row:
             return int(row["id"])
-        # Note: Keep direct-IP access usable after old installs, but never choose an inactive fallback.
         row = conn.execute("SELECT id FROM users WHERE username='admin' AND is_active=1").fetchone()
         if row:
             return int(row["id"])
@@ -126,7 +119,6 @@ def current_user_id() -> int:
     if not enabled():
         return default_user_id()
     if not has_request_context():
-        # Note: Background jobs and schedulers do not have Flask request/session state.
         return 0
     if auth_bypassed_request():
         return bypass_user_id()
@@ -728,12 +720,45 @@ def install_guards(app) -> None:
 def _request_profile_id() -> int | None:
     if request.view_args and request.view_args.get("profile_id"):
         return int(request.view_args["profile_id"])
+    payload = {}
     try:
         payload = request.get_json(silent=True) or {}
-        if payload.get("profile_id"):
-            return int(payload.get("profile_id"))
     except Exception:
-        pass
+        payload = {}
+    raw_id = (
+        request.args.get("profile_id")
+        or request.form.get("profile_id")
+        or payload.get("profile_id")
+        or request.headers.get("X-PyTorrent-Profile-Id")
+    )
+    if raw_id not in (None, ""):
+        try:
+            return int(raw_id)
+        except (TypeError, ValueError):
+            return None
+    raw_name = (
+        request.args.get("profile_name")
+        or request.form.get("profile_name")
+        or payload.get("profile_name")
+        or request.headers.get("X-PyTorrent-Profile-Name")
+    )
+    if raw_name:
+        from . import preferences
+        visible = visible_profile_ids(current_user_id())
+        with connect() as conn:
+            if visible is None:
+                row = conn.execute("SELECT id FROM rtorrent_profiles WHERE lower(name)=lower(?) ORDER BY is_default DESC, id LIMIT 1", (str(raw_name).strip(),)).fetchone()
+            elif visible:
+                placeholders = ",".join("?" for _ in visible)
+                row = conn.execute(
+                    f"SELECT id FROM rtorrent_profiles WHERE id IN ({placeholders}) AND lower(name)=lower(?) ORDER BY is_default DESC, id LIMIT 1",
+                    (*tuple(visible), str(raw_name).strip()),
+                ).fetchone()
+            else:
+                row = None
+        return int(row["id"]) if row else None
     from . import preferences
     profile = preferences.active_profile()
-    return int(profile["id"]) if profile else None
+    if profile:
+        return int(profile["id"])
+    return 1 if can_access_profile(1) else None

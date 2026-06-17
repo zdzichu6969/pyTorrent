@@ -4,7 +4,6 @@ import os
 import threading
 import time
 from typing import Any
-
 from ..db import connect, default_user_id
 from . import port_check, preferences, rtorrent, tracker_cache
 from .torrent_cache import torrent_cache

@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 from typing import Any
 from threading import RLock
-
 from .client import *
 from .config import default_download_path
 from ...utils import human_size
@@ -10,7 +8,6 @@ from ...utils import human_size
 
 def browse_path(profile: dict, path: str | None = None) -> dict:
     """List directories through rTorrent execute.capture to avoid pyTorrent FS permissions."""
-    # Note: Directory browsing stays remote-side, matching the original monolithic service behavior.
     c = client_for(profile)
     base = _remote_clean_path(path or default_download_path(profile))
     script = (
@@ -44,7 +41,6 @@ def browse_path(profile: dict, path: str | None = None) -> dict:
             name, full_path = parts[0], parts[1]
             is_empty = len(parts) > 2 and parts[2] == "1"
             if name not in {".", ".."}:
-                # Note: Empty status is returned with every directory so the path picker can enable safe inline rename.
                 dirs.append({"name": name, "path": full_path, "empty": is_empty})
         elif marker == "M" and "\t" in rest:
             first, second = rest.split("\t", 1)
@@ -67,7 +63,6 @@ def browse_path(profile: dict, path: str | None = None) -> dict:
     parent = posixpath.dirname(base.rstrip("/")) or "/"
     if parent == base:
         parent = base
-    # Note: Path picker metadata is best-effort and remote-side, so it works for move targets on remote rTorrent hosts.
     return {
         "path": base,
         "parent": parent,

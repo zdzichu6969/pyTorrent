@@ -1,11 +1,9 @@
 from __future__ import annotations
-
 from threading import RLock
 from time import time
 from . import rtorrent, operation_logs
 
 _LIVE_KEYS = {"state", "active", "paused", "complete", "completed_bytes", "progress", "ratio", "up_rate", "up_rate_h", "down_rate", "down_rate_h", "eta_seconds", "eta_h", "up_total", "up_total_h", "down_total", "down_total_h", "to_download", "to_download_h", "peers", "seeds", "message", "status", "post_check", "hashing"}
-
 _VOLATILE = {"down_rate", "down_rate_h", "up_rate", "up_rate_h", "progress", "completed_bytes", "peers", "seeds", "ratio", "state", "status", "message", "down_total", "down_total_h", "to_download", "to_download_h", "up_total", "up_total_h"}
 
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from flask import abort, jsonify, request
-
 from ..services.auth import current_user, list_users, save_user, delete_user, login_user, logout_user, enabled as auth_enabled, provider as auth_provider, uses_external_provider, external_auth_summary, list_api_tokens, create_api_token, revoke_api_token
 
 

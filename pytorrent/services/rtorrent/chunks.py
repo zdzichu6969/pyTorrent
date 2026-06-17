@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import math
 import re
 from .client import *
@@ -11,13 +10,11 @@ _HEX_RE = re.compile(r"[0-9a-fA-F]")
 
 def _clean_hex_bitfield(value) -> str:
     """Return only hexadecimal bitfield characters from rTorrent output."""
-    # Note: rTorrent may return spacing or non-hex separators; keep only the actual bitfield payload.
     return "".join(_HEX_RE.findall(str(value or ""))).lower()
 
 
 def _hex_to_bits(value: str, limit: int | None = None) -> list[int]:
     """Decode an rTorrent hex bitfield into one bit per torrent piece."""
-    # Note: d.bitfield is a packed bitset, not a per-nibble completion percentage; decoding fixes false partial cells near 100% torrents.
     bits: list[int] = []
     for char in _clean_hex_bitfield(value):
         nibble = int(char, 16)
@@ -47,7 +44,6 @@ def _chunk_status(completed: int, total: int, seen: bool = False) -> str:
 
 def _group_cells(cells: list[dict], max_cells: int) -> list[dict]:
     """Reduce very large torrents to a browser-friendly number of visual cells."""
-    # Note: Grouping now happens on real piece states, so the aggregated percentage matches the actual torrent progress.
     if max_cells <= 0 or len(cells) <= max_cells:
         return cells
     grouped: list[dict] = []
@@ -79,7 +75,6 @@ def _group_cells(cells: list[dict], max_cells: int) -> list[dict]:
 
 def _build_piece_cells(total_chunks: int, have_bits: list[int], seen_bits: list[int]) -> list[dict]:
     """Create one raw cell per real torrent piece."""
-    # Note: The UI still groups these cells later when needed, but the source data remains exact per piece.
     cells: list[dict] = []
     for idx in range(max(0, int(total_chunks or 0))):
         completed = 1 if idx < len(have_bits) and have_bits[idx] else 0
@@ -101,7 +96,6 @@ def _build_piece_cells(total_chunks: int, have_bits: list[int], seen_bits: list[
 
 def torrent_chunks(profile: dict, torrent_hash: str, max_cells: int = 2048) -> dict:
     """Return ruTorrent-like visual chunk data for one torrent."""
-    # Note: Uses documented rTorrent XML-RPC fields: d.bitfield, d.chunks_seen, d.chunk_size and d.size_chunks.
     c = client_for(profile)
     values = {
         "bitfield": _clean_hex_bitfield(c.call("d.bitfield", torrent_hash)),
@@ -177,7 +171,6 @@ def _files_touching_chunks(c: ScgiRtorrentClient, torrent_hash: str, first_chunk
 
 def torrent_chunk_action(profile: dict, torrent_hash: str, action: str, payload: dict | None = None) -> dict:
     """Run safe actions related to visual chunk selection."""
-    # Note: rTorrent does not expose a supported XML-RPC method to redownload one arbitrary chunk; recheck is torrent-wide.
     payload = payload or {}
     action = str(action or "").strip().lower()
     c = client_for(profile)

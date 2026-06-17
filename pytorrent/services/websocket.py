@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import threading
 import time
 import json
@@ -17,7 +16,6 @@ def _profile_room(profile_id: int) -> str:
 
 
 def _poller_profiles() -> list[dict]:
-    # Background polling has no browser session, so auth-enabled mode refreshes all profiles and emits only to per-profile rooms.
     if not auth.enabled():
         profile = active_profile()
         return [profile] if profile else []
@@ -27,7 +25,6 @@ def _poller_profiles() -> list[dict]:
 
 
 def emit_profile_event(socketio, event: str, payload: dict, profile_id: int) -> None:
-    # Note: Profile-scoped events always go to the selected profile room, even when authentication is disabled.
     scoped_payload = {**(payload or {}), "profile_id": int(profile_id)}
     socketio.emit(event, scoped_payload, to=_profile_room(profile_id))
 
@@ -36,19 +33,15 @@ def _emit_profile(socketio, event: str, payload: dict, profile_id: int) -> None:
     emit_profile_event(socketio, event, payload, profile_id)
 
 
-
-
 def _apply_configured_speed_limits(profile: dict) -> None:
     limits = profile_speed_limits.get_limits(int(profile.get("id") or 0))
     if not limits.get("configured"):
         return
-    # Note: Profile-level speed limits are re-applied when the profile is opened so they are not tied to a specific user session.
     rtorrent.set_limits(profile, limits.get("down"), limits.get("up"))
 
 
 def _run_slow_profile_tasks(socketio, profile: dict, profile_id: int) -> None:
     state = poller_control.state_for(profile_id)
-    # Note: Background checks keep the profile owner so bypass/admin profiles do not enqueue jobs as the fallback user.
     profile_user_id = int(profile.get("user_id") or default_user_id())
     try:
         try:
@@ -67,7 +60,6 @@ def _run_slow_profile_tasks(socketio, profile: dict, profile_id: int) -> None:
         except Exception as exc:
             _emit_profile(socketio, "smart_queue_update", {"ok": False, "profile_id": profile_id, "error": str(exc)}, profile_id)
         try:
-            # Note: Automations are profile-scoped; each queued job still runs as the rule owner.
             auto_result = automation_rules.check(profile, force=False)
             if auto_result.get("applied") or auto_result.get("batches"):
                 _emit_profile(socketio, "automation_update", auto_result, profile_id)
@@ -94,7 +86,6 @@ def _is_active_rows(rows: list[dict]) -> bool:
 
 
 def _speed_status_from_rows(profile_id: int, rows: list[dict]) -> dict:
-    # Note: Fast-poller speed status keeps browser-title speed and peaks independent from slower system_stats.
     down_rate = sum(int(row.get("down_rate") or 0) for row in rows or [])
     up_rate = sum(int(row.get("up_rate") or 0) for row in rows or [])
     return {
@@ -184,7 +175,6 @@ def register_socketio_handlers(socketio):
                             else:
                                 skipped_emissions += 1
                             if live.get("requires_full_refresh"):
-                                # Note: Missing or unknown hashes mean the next slow list tick must reconcile rows.
                                 state.last_list_at = 0.0
                                 run_list = True
                         else:
@@ -218,7 +208,6 @@ def register_socketio_handlers(socketio):
                         rtorrent_call_count += 1
                         if bool(profile.get("is_remote")):
                             try:
-                                # Note: Remote profiles must report CPU/RAM from the rTorrent host, not hide the footer stats.
                                 usage = rtorrent.remote_system_usage(profile)
                                 status.update(usage)
                                 status["usage_available"] = True
@@ -272,7 +261,6 @@ def register_socketio_handlers(socketio):
         global _started
         with _start_lock:
             if not _started:
-                # The poller starts with the app, so Smart Queue, planner and automations work without an open UI.
                 socketio.start_background_task(poller)
                 _started = True
 

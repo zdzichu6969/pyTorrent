@@ -1,12 +1,11 @@
 from __future__ import annotations
-
 from functools import lru_cache
 from pathlib import Path
 from ..config import GEOIP_DB
 
 try:
     import geoip2.database
-except Exception:  # pragma: no cover
+except Exception:
     geoip2 = None
 
 _reader = None

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import json
 import threading
 import time
@@ -43,7 +42,6 @@ def _emit(name: str, payload: dict):
         return
     profile_id = payload.get("profile_id")
     if profile_id:
-        # Note: Job/socket events are profile-room scoped so modals and toasts do not leak between rTorrent profiles.
         _socketio.emit(name, payload, to=f"profile:{int(profile_id)}")
     else:
         _socketio.emit(name, payload)
@@ -102,7 +100,6 @@ def _job_payload(row) -> dict:
 def _is_ordered_job(row) -> bool:
     payload = _job_payload(row)
     action = str((row or {}).get("action") or "")
-    # Note: Only long/destructive tasks are ordered; lightweight start/stop/label jobs may run beside other work.
     return action in {"move", "remove", "add_magnet", "add_torrent_raw"} or bool(payload.get("requires_order"))
 
 
@@ -195,7 +192,6 @@ def enqueue(action_name: str, profile_id: int, payload: dict, user_id: int | Non
     job_id = uuid.uuid4().hex
     if force:
         payload = dict(payload or {})
-        # Note: Forced pending jobs bypass ordered waits and run in a separate worker slot after explicit user confirmation.
         payload['force_job'] = True
         payload['priority_job'] = True
     now = utcnow()
@@ -205,7 +201,6 @@ def enqueue(action_name: str, profile_id: int, payload: dict, user_id: int | Non
             "INSERT INTO jobs(id,user_id,profile_id,action,payload_json,status,attempts,max_attempts,progress_total,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (job_id, user_id, profile_id, action_name, json.dumps(payload), "pending", 0, max_attempts, progress_total, now, now),
         )
-    # Note: Queued jobs are now written to operation logs so work is visible before a worker starts it.
     operation_logs.record_job_event(profile_id, action_name, "queued", payload, job_id=job_id, user_id=user_id)
     _emit("job_update", {"id": job_id, "action": action_name, "profile_id": profile_id, "status": "pending"})
     _submit_job(job_id, action_name)
@@ -217,13 +212,11 @@ def _job_event_meta(payload: dict) -> dict:
     source = str(ctx.get("source") or payload.get("source") or "user")
     meta = {"source": source}
     if source == "automation":
-        # Note: Socket operation toasts use this flag so automation notifications respect user preferences.
         meta["automation"] = True
         meta["source_label"] = str(ctx.get("rule_name") or "automation")
         if ctx.get("rule_id") is not None:
             meta["rule_id"] = ctx.get("rule_id")
     return meta
-
 
 
 
@@ -239,7 +232,6 @@ def _remove_job_deletes_data(action_name: str, payload: dict, result: dict | Non
 
 def _clear_disk_refresh_cache(profile_id: int) -> None:
     try:
-        # Note: Remove-with-data jobs invalidate disk cache before notifying browsers, otherwise /api/system/disk may return stale values.
         rtorrent.clear_profile_runtime_caches(int(profile_id))
     except Exception:
         pass
@@ -247,7 +239,6 @@ def _clear_disk_refresh_cache(profile_id: int) -> None:
 
 def _emit_profile_disk_refresh(profile_id: int, reason: str, hash_count: int = 0, delay_seconds: int = 0) -> None:
     _clear_disk_refresh_cache(profile_id)
-    # Note: The browser performs the fresh /api/system/disk read so profile-scoped disk monitor preferences stay respected.
     _emit("disk_refresh_requested", {
         "profile_id": int(profile_id),
         "hash_count": int(hash_count or 0),
@@ -282,7 +273,6 @@ def _schedule_profile_disk_refresh(profile_id: int, hash_count: int = 0) -> None
             old_timer = _disk_refresh_timers.get(key)
             if old_timer:
                 old_timer.cancel()
-            # Note: Repeated delete jobs share one delayed refresh per profile and delay, preventing timer storms during bulk cleanup.
             timer = threading.Timer(float(delay_seconds), _run_delayed_disk_refresh, args=(profile_id, int(delay_seconds)))
             timer.daemon = True
             _disk_refresh_timers[key] = timer
@@ -301,7 +291,6 @@ def _emit_disk_refresh_requested(profile_id: int, action_name: str, payload: dic
 def _execute(profile: dict, action_name: str, payload: dict, user_id: int | None = None):
     if action_name == "smart_queue_check":
         from . import smart_queue
-        # Note: Worker execution uses the job owner instead of Flask session state.
         return smart_queue.check(profile, user_id=user_id or default_user_id(), force=True)
     if action_name == "add_magnet":
         if bool(payload.get("start", True)):
@@ -363,7 +352,6 @@ def _emit_torrent_refresh(profile: dict, action_name: str) -> None:
         else:
             _emit("rtorrent_error", {**diff, "profile_id": profile_id})
     except Exception as exc:
-        # Note: A failed live refresh must not change the already completed job result.
         _emit("rtorrent_error", {"profile_id": int(profile.get("id") or 0), "error": str(exc)})
 
 
@@ -372,7 +360,6 @@ def _schedule_delayed_torrent_refresh(profile: dict, action_name: str) -> None:
         return
 
     def delayed_refresh():
-        # Note: rTorrent may expose state changes one poll later than the XML-RPC action result.
         sleep_fn = getattr(_socketio, "sleep", time.sleep)
         for delay in (0.75, 1.75):
             sleep_fn(delay)
@@ -395,7 +382,6 @@ def _run(job_id: str):
         profile = get_profile(int(job["profile_id"]), int(job["user_id"]))
         if not profile:
             _set_job(job_id, "failed", "rTorrent profile does not exist", finished=True)
-            # Note: Profile lookup failures used to appear only in the job queue; they are now persisted in operation logs too.
             operation_logs.record_worker_event(int(job.get("profile_id") or 0), str(job.get("action") or ""), "failed", "Job failed: rTorrent profile does not exist", job_id=job_id, user_id=int(job.get("user_id") or 0), error="profile not found")
             _emit("job_update", {"id": job_id, "profile_id": job.get("profile_id"), "status": "failed", "error": "profile not found"})
             return
@@ -422,16 +408,13 @@ def _run(job_id: str):
         _emit("job_update", {"id": job_id, "profile_id": profile["id"], "status": "running", "attempts": attempts})
         result = _execute(profile, job["action"], payload, user_id=int(job.get("user_id") or 0))
         fresh = _job_row(job_id)
-        # Note: Emergency cancel and watchdog timeout keep late work from overwriting a terminal state.
         if fresh and fresh["status"] != "running":
             return
         _set_job(job_id, "done", result=result, finished=True)
         operation_logs.record_job_event(profile["id"], job["action"], "done", payload, result=result or {}, job_id=job_id, user_id=int(job.get("user_id") or 0))
         _emit("operation_finished", {"job_id": job_id, "action": job["action"], "profile_id": profile["id"], "hashes": payload.get("hashes") or [], "hash_count": len(payload.get("hashes") or []), "bulk": len(payload.get("hashes") or []) > 1, "result": result, **event_meta})
-        # Note: Remove-with-data jobs ask connected browsers to refresh disk usage immediately after filesystem deletion finishes.
         action_name = str(job["action"] or "")
         _emit_disk_refresh_requested(int(profile["id"]), action_name, payload, result or {})
-        # Note: Completed jobs must publish a fresh torrent snapshot/patch so removed or moved torrents disappear without a page reload.
         _emit_torrent_refresh(profile, action_name)
         _schedule_delayed_torrent_refresh(profile, action_name)
         _emit("job_update", {"id": job_id, "profile_id": profile["id"], "status": "done", "result": result})
@@ -495,7 +478,6 @@ def _timeout_running_jobs() -> None:
             continue
         message = f"Watchdog timeout after {_job_timeout_seconds(profile, row)} seconds"
         _set_job(row["id"], "failed", message, finished=True)
-        # Note: Watchdog timeouts are stored in operation logs because no normal worker exception may be raised.
         operation_logs.record_worker_event(int(row.get("profile_id") or 0), str(row.get("action") or ""), "timeout", message, job_id=row["id"], user_id=int(row.get("user_id") or 0), error=message)
         _emit("operation_failed", {"job_id": row["id"], "action": row.get("action"), "profile_id": row.get("profile_id"), "hashes": [], "error": message, "source": "watchdog"})
         _emit("job_update", {"id": row["id"], "profile_id": row.get("profile_id"), "status": "failed", "error": message})
@@ -514,8 +496,7 @@ def _resubmit_interrupted_running_jobs() -> None:
         if not profile:
             continue
         last_seen_ts = _parse_ts(row.get("heartbeat_at") or row.get("updated_at"))
-        # Note: After process restart there is no in-memory runner for this job.
-        # A short grace avoids stealing work from another still-alive Gunicorn worker.
+
         if last_seen_ts is not None and now_ts - last_seen_ts < 90:
             continue
         with connect() as conn:
@@ -524,7 +505,6 @@ def _resubmit_interrupted_running_jobs() -> None:
                 ("Resuming interrupted job from last checkpoint", utcnow(), row["id"]),
             )
         if int(cur.rowcount or 0):
-            # Note: Interrupted jobs returned to the queue are logged so restart recovery is auditable.
             operation_logs.record_worker_event(int(row.get("profile_id") or 0), str(row.get("action") or ""), "resubmitted", "Interrupted job resubmitted from checkpoint", job_id=row["id"], user_id=int(row.get("user_id") or 0))
             _emit("job_update", {"id": row["id"], "profile_id": row.get("profile_id"), "status": "pending", "resumed": True})
             _submit_job(row["id"], row.get("action"))
@@ -547,7 +527,6 @@ def _resubmit_stale_pending_jobs() -> None:
             continue
         with connect() as conn:
             conn.execute("UPDATE jobs SET error=?, updated_at=? WHERE id=? AND status='pending'", ("Watchdog resubmitted stale pending job", utcnow(), row["id"]))
-        # Note: Stale pending resubmits are logged to explain duplicated queue attempts after watchdog recovery.
         operation_logs.record_worker_event(int(row.get("profile_id") or 0), str(row.get("action") or ""), "resubmitted", "Stale pending job resubmitted by watchdog", job_id=row["id"], user_id=int(row.get("user_id") or 0))
         _emit("job_update", {"id": row["id"], "profile_id": row.get("profile_id"), "status": "pending", "watchdog": True})
         _submit_job(row["id"], row.get("action"))
@@ -586,7 +565,6 @@ def _job_summary(row: dict, payload: dict, result: dict) -> str:
     count = int(ctx.get("hash_count") or len(payload.get("hashes") or []) or result.get("count") or 0)
     parts = []
     if ctx.get("bulk_label"):
-        # Note: Shows which generated bulk part is being displayed in the job queue.
         parts.append(f"{ctx.get('bulk_label')} of {ctx.get('bulk_parts')}")
     if count:
         parts.append(("bulk " if count > 1 else "single ") + f"{count} torrent(s)")
@@ -652,7 +630,6 @@ def cancel_job(job_id: str) -> bool:
     row = _job_row(job_id)
     if not row or row["status"] not in {"pending", "running"}:
         return False
-    # Note: Emergency cancel is useful only for unfinished jobs; failed/done entries stay available for retry or log cleanup.
     _set_job(job_id, "cancelled", finished=True)
     payload = _job_payload(row)
     operation_logs.record_job_event(int(row.get("profile_id") or 0), row.get("action"), "cancelled", payload, error="Cancelled by user", job_id=job_id, user_id=int(row.get("user_id") or 0))
@@ -670,7 +647,6 @@ def clear_jobs() -> int:
 
 
 def emergency_clear_jobs() -> int:
-    # Note: Emergency cleanup first marks active jobs as cancelled, then clears the whole job log list.
     now = utcnow()
     where, params = _job_scope_sql(writable=True)
     status_clause = "status IN ('pending', 'running')"

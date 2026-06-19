@@ -6,10 +6,72 @@ from .config import default_download_path
 from ...utils import human_size
 
 
-def browse_path(profile: dict, path: str | None = None) -> dict:
-    """List directories through rTorrent execute.capture to avoid pyTorrent FS permissions."""
+
+def _rtorrent_home_path(profile: dict) -> str:
+    # Note: This reads the remote rTorrent process home, not the pyTorrent server home.
+    try:
+        c = client_for(profile)
+        return _remote_clean_path(str(_rt_execute(c, "execute.capture", "sh", "-c", 'printf "%s" "${HOME:-}"') or "").strip())
+    except Exception:
+        return ""
+
+
+def _append_path_browse_candidate(candidates: list[str], value: str) -> None:
+    clean = _remote_clean_path(value or "")
+    if clean and clean.startswith("/") and clean != "/" and clean not in candidates:
+        candidates.append(clean)
+
+
+def _path_browse_fallback_candidates(profile: dict) -> list[str]:
+    candidates: list[str] = []
+    download_path = _remote_clean_path(default_download_path(profile) or "")
+    download_parent = _remote_clean_path(posixpath.dirname(download_path.rstrip("/")) if download_path else "")
+
+    # Note: Fallback prefers the configured download area, then its parent, then the rTorrent user home.
+    _append_path_browse_candidate(candidates, download_path)
+    _append_path_browse_candidate(candidates, download_parent)
+    _append_path_browse_candidate(candidates, _rtorrent_home_path(profile))
+    return candidates
+
+
+def _remote_accessible_directory(profile: dict, paths: list[str]) -> str:
     c = client_for(profile)
-    base = _remote_clean_path(path or default_download_path(profile))
+    script = (
+        'for base in "$@"; do '
+        '[ -n "$base" ] || continue; '
+        '[ "$base" = "/" ] && continue; '
+        '[ -d "$base" ] || continue; '
+        '[ -L "$base" ] && continue; '
+        '[ -r "$base" ] || continue; '
+        '[ -x "$base" ] || continue; '
+        'physical=$(cd -P -- "$base" 2>/dev/null && pwd -P) || continue; '
+        '[ -n "$physical" ] || continue; '
+        '[ "$physical" = "/" ] && continue; '
+        'printf "%s" "$physical"; exit 0; '
+        'done'
+    )
+    clean_paths = [_remote_clean_path(path or "") for path in paths if str(path or "").strip()]
+    output = _rt_execute(c, "execute.capture", "sh", "-c", script, "pytorrent-access-check", *clean_paths)
+    return _remote_clean_path(str(output or "").strip())
+
+
+def _safe_browse_base(profile: dict, requested_path: str | None) -> tuple[str, str, bool]:
+    fallback_candidates = _path_browse_fallback_candidates(profile)
+    fallback = _remote_accessible_directory(profile, fallback_candidates)
+    if not fallback:
+        raise RuntimeError("Cannot determine an accessible rTorrent browse fallback")
+
+    requested = _remote_clean_path(requested_path or fallback)
+    if requested == "/":
+        return fallback, fallback, True
+
+    allowed = _remote_accessible_directory(profile, [requested])
+    return (allowed or fallback), fallback, not bool(allowed)
+
+def browse_path(profile: dict, path: str | None = None) -> dict:
+    """List allowed rTorrent directories through execute.capture without exposing the full filesystem."""
+    c = client_for(profile)
+    base, fallback_root, used_fallback = _safe_browse_base(profile, path)
     script = (
         'base=$1; '
         '[ -d "$base" ] || exit 2; '
@@ -17,10 +79,17 @@ def browse_path(profile: dict, path: str | None = None) -> dict:
         'dir_count=0; file_count=0; '
         'for p in "$base"/* "$base"/.[!.]* "$base"/..?*; do '
         '[ -e "$p" ] || continue; '
+        '[ -L "$p" ] && continue; '
         'if [ -d "$p" ]; then '
-        'dir_count=$((dir_count+1)); name=${p##*/}; empty=1; '
-        'if find "$p" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .; then empty=0; fi; '
-        'printf "D\\t%s\\t%s\\t%s\\n" "$name" "$p" "$empty"; '
+        'dir_count=$((dir_count+1)); '
+        '[ -r "$p" ] || continue; '
+        '[ -x "$p" ] || continue; '
+        'physical=$(cd -P -- "$p" 2>/dev/null && pwd -P) || continue; '
+        '[ -n "$physical" ] || continue; '
+        '[ "$physical" = "/" ] && continue; '
+        'name=${p##*/}; empty=1; '
+        'if find "$physical" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null | grep -q .; then empty=0; fi; '
+        'printf "D\\t%s\\t%s\\t%s\\n" "$name" "$physical" "$empty"; '
         'elif [ -f "$p" ]; then file_count=$((file_count+1)); fi; '
         'done; '
         'printf "M\\t%s\\t%s\\n" "$dir_count" "$file_count"; '
@@ -61,11 +130,15 @@ def browse_path(profile: dict, path: str | None = None) -> dict:
                     disk_total = disk_used = disk_free = disk_percent = 0
     dirs.sort(key=lambda x: x["name"].lower())
     parent = posixpath.dirname(base.rstrip("/")) or "/"
-    if parent == base:
+    if parent == base or parent == "/" or not _remote_accessible_directory(profile, [parent]):
         parent = base
     return {
         "path": base,
         "parent": parent,
+        "root": fallback_root,
+        "allowed_roots": [fallback_root],
+        "access_policy": "rtorrent-permissions",
+        "fallback": used_fallback,
         "dirs": dirs[:300],
         "source": "rtorrent",
         "dir_count": dir_count,
@@ -78,7 +151,6 @@ def browse_path(profile: dict, path: str | None = None) -> dict:
         "free_h": human_size(disk_free),
         "used_percent": disk_percent,
     }
-
 
 
 def _safe_directory_name(name: str) -> str:

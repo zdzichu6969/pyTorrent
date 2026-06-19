@@ -1073,6 +1073,21 @@ body.resizing-details {
   overflow: auto;
 }
 
+.path-info-strip {
+  align-items: center;
+  background: var(--bs-tertiary-bg);
+  border-bottom: 1px solid var(--bs-border-color);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.path-info-strip span {
+  color: var(--bs-secondary-color);
+  font-size: 0.82rem;
+}
+
 .path-row {
   align-items: center;
   border-bottom: 1px solid var(--bs-border-color);
@@ -4117,7 +4132,7 @@ body,
   }
 }
 
-/* API tokens and path picker improvements */
+/* API token improvements */
 .api-token-row {
   align-items: center;
   border: 1px solid var(--bs-border-color);
@@ -4138,20 +4153,6 @@ body,
   margin-top: 0.15rem;
 }
 
-.path-info-strip {
-  align-items: center;
-  background: var(--bs-tertiary-bg);
-  border-bottom: 1px solid var(--bs-border-color);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.85rem;
-  padding: 0.65rem 0.75rem;
-}
-
-.path-info-strip span {
-  color: var(--bs-secondary-color);
-  font-size: 0.82rem;
-}
 
 @media (max-width: 576px) {
   .api-token-row {

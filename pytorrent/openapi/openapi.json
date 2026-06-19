@@ -1036,6 +1036,21 @@
               },
               "path": {
                 "type": "string"
+              },
+              "root": {
+                "type": "string"
+              },
+              "allowed_roots": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "fallback": {
+                "type": "boolean"
+              },
+              "access_policy": {
+                "type": "string"
               }
             },
             "type": "object"
@@ -5685,7 +5700,8 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Browse server directories"
+        "summary": "Browse rTorrent-readable directories",
+        "description": "Lists directories that the rTorrent process can enter and read. The filesystem root is never listed; denied or unreadable requests fall back to the first accessible download-space candidate."
       }
     },
     "/api/path/default": {

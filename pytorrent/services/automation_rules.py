@@ -5,7 +5,7 @@ import json
 import threading
 from ..db import connect, default_user_id, utcnow
 from . import rtorrent, auth
-from .preferences import active_profile
+from .preferences import active_profile, get_profile, get_disk_monitor_preferences
 from .workers import enqueue
 
 AUTOMATION_JOB_CHUNK_SIZE = 100
@@ -369,6 +369,8 @@ def _enqueue_automation_job(profile: dict[str, Any], rule: dict[str, Any], actio
             extra.update({'bulk_label': f'automation-{index}', 'bulk_part': index, 'bulk_parts': len(chunks), 'parent_hash_count': len(hashes)})
         if action_name == 'move':
             extra.update({'target_path': str(part_payload.get('path') or ''), 'move_data': bool(part_payload.get('move_data'))})
+        if action_name == 'profile_transfer':
+            extra.update({'target_profile_id': int(part_payload.get('target_profile_id') or 0), 'target_path': str(part_payload.get('target_path') or ''), 'move_data': bool(part_payload.get('move_data')), 'post_action': str(part_payload.get('post_action') or 'current')})
         if action_name == 'remove':
             extra.update({'remove_data': bool(part_payload.get('remove_data'))})
         effect_type = str(context_extra.get('effect_type') if context_extra else action_name)
@@ -376,6 +378,81 @@ def _enqueue_automation_job(profile: dict[str, Any], rule: dict[str, Any], actio
         job_ids.append(enqueue(action_name, int(profile['id']), part_payload, user_id=user_id))
     return job_ids
 
+
+
+
+def _safe_remote_path(value: str) -> str:
+    path = str(value or '').strip().replace('\\', '/')
+    while '//' in path:
+        path = path.replace('//', '/')
+    if path.endswith('/') and path != '/':
+        path = path.rstrip('/')
+    return path
+
+def _path_inside_root(path: str, root: str) -> bool:
+    path = _safe_remote_path(path)
+    root = _safe_remote_path(root)
+    return bool(path and root and (path == root or path.startswith(root.rstrip('/') + '/')))
+
+def _automation_profile_transfer_payload(profile: dict[str, Any], eff: dict[str, Any], user_id: int) -> dict[str, Any]:
+    # Note: Automation profile transfers reuse server-side permission checks; UI values are not trusted.
+    source_id = int(profile.get('id') or 0)
+    if not auth.can_write_profile(source_id, user_id):
+        raise ValueError('Rule owner has no write access to source profile')
+    target_id = int(eff.get('target_profile_id') or 0)
+    if not target_id or target_id == source_id:
+        raise ValueError('Automation target profile is invalid')
+    if not auth.can_write_profile(target_id, user_id):
+        raise ValueError('Rule owner has no write access to target profile')
+    target_profile = get_profile(target_id, user_id)
+    if not target_profile:
+        raise ValueError('Automation target profile does not exist')
+    default_path = _safe_remote_path(rtorrent.default_download_path(target_profile))
+    requested_target_path = _safe_remote_path(str(eff.get('target_path') or eff.get('path') or ''))
+    target_path = requested_target_path or default_path
+    roots = [default_path]
+    try:
+        prefs = get_disk_monitor_preferences(target_id, user_id=user_id)
+        for item in json.loads((prefs or {}).get('disk_monitor_paths_json') or '[]'):
+            clean = _safe_remote_path(str(item or ''))
+            if clean and clean not in roots:
+                roots.append(clean)
+        selected = _safe_remote_path(str((prefs or {}).get('disk_monitor_selected_path') or ''))
+        if selected and selected not in roots:
+            roots.append(selected)
+    except Exception:
+        pass
+    target_roots = [r for r in roots if r]
+    if not any(_path_inside_root(target_path, root) for root in target_roots):
+        if requested_target_path:
+            raise ValueError('Automation target path is outside the target profile download roots')
+        target_path = default_path
+    requested_move_data = bool(eff.get('move_data'))
+    move_data = False
+    downgrade_reason = ''
+    if requested_move_data:
+        check = rtorrent.remote_can_write_directory(profile, target_path)
+        move_data = bool(check.get('ok'))
+        if not move_data:
+            downgrade_reason = str(check.get('message') or check.get('error') or 'target path is not writable by source rTorrent user')
+    post_action = str(eff.get('post_action') or 'current').strip().lower()
+    if post_action not in {'none', 'current', 'start', 'stop', 'pause', 'check', 'recheck'}:
+        post_action = 'current'
+    label_mode = str(eff.get('label_mode') or 'none').strip().lower()
+    if label_mode not in {'none', 'custom', 'moved_from', 'moved_to'}:
+        label_mode = 'none'
+    return {
+        'target_profile_id': target_id,
+        'target_path': target_path,
+        'path': target_path,
+        'move_data': move_data,
+        'move_data_requested': requested_move_data,
+        'move_data_downgraded': bool(requested_move_data and not move_data),
+        'move_data_downgrade_reason': downgrade_reason,
+        'post_action': post_action,
+        'label_mode': label_mode,
+        'label_value': str(eff.get('label_value') or '').strip(),
+    }
 
 def _apply_effects_bulk(c: Any, profile: dict[str, Any], torrents: list[dict[str, Any]], effects: list[dict[str, Any]], rule: dict[str, Any], user_id: int | None = None) -> list[dict[str, Any]]:
     hashes = [str(t.get('hash') or '') for t in torrents if str(t.get('hash') or '')]
@@ -395,6 +472,11 @@ def _apply_effects_bulk(c: Any, profile: dict[str, Any], torrents: list[dict[str
             }
             job_ids = _enqueue_automation_job(profile, rule, 'move', hashes, payload, torrents_by_hash, user_id, {'effect_type': 'move'})
             applied.append({'type': 'move', 'path': path, 'count': len(hashes), 'target_hashes': hashes, 'move_data': payload['move_data'], 'recheck': payload['recheck'], 'keep_seeding': payload['keep_seeding'], 'job_ids': job_ids})
+        elif typ == 'profile_transfer':
+            owner_id = int(user_id or rule.get('user_id') or rule.get('owner_user_id') or default_user_id())
+            payload = _automation_profile_transfer_payload(profile, eff, owner_id)
+            job_ids = _enqueue_automation_job(profile, rule, 'profile_transfer', hashes, payload, torrents_by_hash, owner_id, {'effect_type': 'profile_transfer'})
+            applied.append({'type': 'profile_transfer', 'target_profile_id': payload['target_profile_id'], 'target_path': payload['target_path'], 'count': len(hashes), 'target_hashes': hashes, 'move_data': payload['move_data'], 'move_data_requested': payload['move_data_requested'], 'move_data_downgraded': payload['move_data_downgraded'], 'post_action': payload['post_action'], 'label_mode': payload['label_mode'], 'label': payload['label_value'], 'job_ids': job_ids})
         elif typ == 'add_label':
             label = str(eff.get('label') or '').strip()
             if label:

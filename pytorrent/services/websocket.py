@@ -16,11 +16,9 @@ def _profile_room(profile_id: int) -> str:
 
 
 def _poller_profiles() -> list[dict]:
-    if not auth.enabled():
-        profile = active_profile()
-        return [profile] if profile else []
     from ..db import connect
     with connect() as conn:
+        # Note: Background polling must be profile-scoped and browser-independent, even when auth is disabled.
         return conn.execute("SELECT * FROM rtorrent_profiles ORDER BY id").fetchall()
 
 
@@ -33,11 +31,20 @@ def _emit_profile(socketio, event: str, payload: dict, profile_id: int) -> None:
     emit_profile_event(socketio, event, payload, profile_id)
 
 
-def _apply_configured_speed_limits(profile: dict) -> None:
-    limits = profile_speed_limits.get_limits(int(profile.get("id") or 0))
+_speed_limits_applied: dict[int, tuple[int, int]] = {}
+
+
+def _apply_configured_speed_limits(profile: dict, *, force: bool = False) -> None:
+    profile_id = int(profile.get("id") or 0)
+    limits = profile_speed_limits.get_limits(profile_id)
     if not limits.get("configured"):
         return
+    key = (int(limits.get("down") or 0), int(limits.get("up") or 0))
+    if not force and _speed_limits_applied.get(profile_id) == key:
+        return
+    # Note: Persisted per-profile limits are applied by the backend poller, not only after browser profile selection.
     rtorrent.set_limits(profile, limits.get("down"), limits.get("up"))
+    _speed_limits_applied[profile_id] = key
 
 
 def _run_slow_profile_tasks(socketio, profile: dict, profile_id: int) -> None:
@@ -60,7 +67,7 @@ def _run_slow_profile_tasks(socketio, profile: dict, profile_id: int) -> None:
         except Exception as exc:
             _emit_profile(socketio, "smart_queue_update", {"ok": False, "profile_id": profile_id, "error": str(exc)}, profile_id)
         try:
-            auto_result = automation_rules.check(profile, force=False)
+            auto_result = automation_rules.check(profile, user_id=profile_user_id, force=False)
             if auto_result.get("applied") or auto_result.get("batches"):
                 _emit_profile(socketio, "automation_update", auto_result, profile_id)
         except Exception as exc:
@@ -145,6 +152,8 @@ def register_socketio_handlers(socketio):
                 heartbeat = {"ok": True, "profile_id": pid, "tick": state.tick_count + 1, "error": ""}
 
                 try:
+                    # Note: This keeps per-profile runtime limits active after app start, without waiting for UI contact.
+                    _apply_configured_speed_limits(profile)
                     rows = torrent_cache.snapshot(pid)
                     speed_status = _speed_status_from_rows(pid, rows)
 
@@ -280,7 +289,7 @@ def register_socketio_handlers(socketio):
             emit("profile_required", {"ok": True, "profiles": []})
             return
         try:
-            _apply_configured_speed_limits(profile)
+            _apply_configured_speed_limits(profile, force=True)
         except Exception as exc:
             emit("rtorrent_error", {"profile_id": profile["id"], "error": str(exc)})
         rows = torrent_cache.snapshot(profile["id"])
@@ -306,7 +315,7 @@ def register_socketio_handlers(socketio):
             return
         join_room(_profile_room(profile_id))
         try:
-            _apply_configured_speed_limits(profile)
+            _apply_configured_speed_limits(profile, force=True)
         except Exception as exc:
             emit("rtorrent_error", {"profile_id": profile_id, "error": str(exc)})
         diff = torrent_cache.refresh(profile)

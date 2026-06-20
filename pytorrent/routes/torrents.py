@@ -1,5 +1,7 @@
 from __future__ import annotations
 from ._shared import *
+import json
+import posixpath
 from ..services import profile_speed_limits
 from ..services import pdf_preview_links, torrent_creator
 from ..services.reverse_dns import attach_reverse_dns
@@ -514,17 +516,153 @@ def torrent_tracker_action(torrent_hash: str, action_name: str):
 
 
 
+
+def _clean_remote_transfer_path(path: str) -> str:
+    clean = posixpath.normpath(str(path or "").strip())
+    if not clean or clean in {".", "/"} or not clean.startswith("/") or "\x00" in clean:
+        raise ValueError("Unsafe target path")
+    return clean
+
+
+def _path_inside_root(path: str, root: str) -> bool:
+    path = _clean_remote_transfer_path(path)
+    root = _clean_remote_transfer_path(root)
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def _target_profile_allowed_roots(target_profile: dict, user_id: int) -> list[str]:
+    roots = []
+    try:
+        roots.append(_clean_remote_transfer_path(rtorrent.default_download_path(target_profile)))
+    except Exception:
+        pass
+    try:
+        prefs = preferences.get_disk_monitor_preferences(int(target_profile.get("id") or 0), user_id=user_id)
+        for item in json.loads((prefs or {}).get("disk_monitor_paths_json") or "[]"):
+            try:
+                roots.append(_clean_remote_transfer_path(str(item or "")))
+            except Exception:
+                continue
+        selected = str((prefs or {}).get("disk_monitor_selected_path") or "").strip()
+        if selected:
+            roots.append(_clean_remote_transfer_path(selected))
+    except Exception:
+        pass
+    seen = []
+    for root in roots:
+        if root not in seen:
+            seen.append(root)
+    return seen
+
+
+def _profile_transfer_payload(source_profile: dict, data: dict, *, require_hashes: bool = True) -> dict:
+    user_id = auth.current_user_id() or default_user_id()
+    source_id = int(source_profile.get("id") or 0)
+    if not auth.can_write_profile(source_id, user_id):
+        raise PermissionError("No write access to source profile")
+    hashes = [str(h).strip() for h in (data.get("hashes") or []) if str(h).strip()]
+    if require_hashes and not hashes:
+        raise ValueError("No torrents selected")
+    target_id = int(data.get("target_profile_id") or 0)
+    if not target_id or target_id == source_id:
+        raise ValueError("Choose a different target profile")
+    if not auth.can_write_profile(target_id, user_id):
+        raise PermissionError("No write access to target profile")
+    target_profile = preferences.get_profile(target_id, user_id)
+    if not target_profile:
+        raise ValueError("Target profile does not exist")
+
+    roots = _target_profile_allowed_roots(target_profile, user_id)
+    default_target_path = roots[0] if roots else _clean_remote_transfer_path(rtorrent.default_download_path(target_profile))
+    requested_target_path = str(data.get("target_path") or data.get("path") or "").strip()
+    target_path = _clean_remote_transfer_path(requested_target_path or default_target_path)
+    inside_allowed_root = bool(roots and any(_path_inside_root(target_path, root) for root in roots))
+    if not inside_allowed_root:
+        # Note: A chosen target path must stay inside the target profile roots even for metadata-only transfers.
+        if requested_target_path:
+            raise ValueError("Target path is outside the target profile download roots")
+        target_path = default_target_path
+        inside_allowed_root = bool(roots and any(_path_inside_root(target_path, root) for root in roots))
+
+    requested_move_data = bool(data.get("move_data"))
+    move_data = requested_move_data
+    write_check = {"ok": False, "message": "not requested"}
+    downgrade_reason = ""
+    if requested_move_data:
+        if not inside_allowed_root:
+            move_data = False
+            downgrade_reason = "Target path is outside the target profile download roots"
+            write_check = {"ok": False, "message": downgrade_reason, "path": target_path}
+        else:
+            # Note: Data moves are allowed only when the source rTorrent OS user can write to the target profile path.
+            write_check = rtorrent.remote_can_write_directory(source_profile, target_path)
+            move_data = bool(write_check.get("ok"))
+            if not move_data:
+                downgrade_reason = str(write_check.get("message") or write_check.get("error") or "Target path is not writable by the source rTorrent user")
+
+    return {
+        "hashes": hashes,
+        "target_profile_id": target_id,
+        "target_path": target_path,
+        "path": target_path,
+        "move_data": move_data,
+        "move_data_requested": requested_move_data,
+        "move_data_downgraded": bool(requested_move_data and not move_data),
+        "move_data_downgrade_reason": downgrade_reason,
+        "target_allowed_roots": roots,
+        "target_write_check": write_check,
+        "label_mode": str(data.get("label_mode") or "none").strip(),
+        "label_value": str(data.get("label_value") or "").strip(),
+        "post_action": str(data.get("post_action") or "current").strip(),
+    }
+
+
+def _validated_profile_transfer_payload(source_profile: dict, data: dict) -> dict:
+    return _profile_transfer_payload(source_profile, data, require_hashes=True)
+
+
+@bp.post("/torrents/profile_transfer/validate")
+def profile_transfer_validate():
+    profile = request_profile()
+    if not profile:
+        return jsonify({"ok": False, "error": "No profile"}), 400
+    try:
+        payload = _profile_transfer_payload(profile, request.get_json(silent=True) or {}, require_hashes=False)
+        target_profile = preferences.get_profile(int(payload["target_profile_id"]), auth.current_user_id() or default_user_id())
+        return ok({
+            "target_profile_id": payload["target_profile_id"],
+            "target_path": payload["target_path"],
+            "move_data_requested": payload["move_data_requested"],
+            "move_data_allowed": bool(payload["move_data"]),
+            "move_data_downgraded": bool(payload["move_data_downgraded"]),
+            "move_data_downgrade_reason": payload.get("move_data_downgrade_reason") or "",
+            "target_write_check": payload.get("target_write_check") or {},
+            "disk": rtorrent.disk_usage_for_paths(target_profile, [payload["target_path"]], mode="selected", selected_path=payload["target_path"]),
+            "target_allowed_roots": payload.get("target_allowed_roots") or [],
+        })
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 403
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
 @bp.post("/torrents/<action_name>")
 def torrent_action(action_name: str):
     profile = request_profile()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     data = request.get_json(silent=True) or {}
-    allowed = {"start", "pause", "unpause", "stop", "resume", "recheck", "reannounce", "remove", "move", "set_label", "set_ratio_group"}
+    allowed = {"start", "pause", "unpause", "stop", "resume", "recheck", "reannounce", "remove", "move", "profile_transfer", "set_label", "set_ratio_group"}
     if action_name not in allowed:
         return jsonify({"ok": False, "error": "Unknown action"}), 400
-    if action_name in {"move", "remove"}:
-        # Note: Large move/remove requests are split into ordered bulk parts; smaller requests keep the old single-job response shape.
+    if action_name == "profile_transfer":
+        try:
+            data = _validated_profile_transfer_payload(profile, data)
+        except PermissionError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 403
+        except Exception as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+    if action_name in {"move", "remove", "profile_transfer"}:
+        # Note: Large move/remove/profile-transfer requests are split into ordered bulk parts; smaller requests keep the old single-job response shape.
         jobs = enqueue_bulk_parts(profile, action_name, data)
         first_job_id = jobs[0]["job_id"] if jobs else None
         total_hashes = sum(int(job.get("hash_count") or 0) for job in jobs)
@@ -536,6 +674,8 @@ def torrent_action(action_name: str):
             "bulk": total_hashes > 1,
             "bulk_parts": len(jobs),
             "chunk_size": MOVE_BULK_MAX_HASHES,
+            "transfer_move_data_downgraded": bool(data.get("move_data_downgraded")),
+            "transfer_move_data_downgrade_reason": str(data.get("move_data_downgrade_reason") or ""),
         })
     payload = enrich_bulk_payload(profile, action_name, data)
     job_id = enqueue(action_name, profile["id"], payload)

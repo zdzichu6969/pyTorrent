@@ -146,11 +146,36 @@ def migrate_profile_speed_limits_table(conn: sqlite3.Connection) -> bool:
     return existing is None
 
 
+def migrate_profile_runtime_stats_table(conn: sqlite3.Connection) -> bool:
+    existing = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='profile_runtime_stats'").fetchone()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS profile_runtime_stats (
+          profile_id INTEGER PRIMARY KEY,
+          user_id INTEGER NOT NULL,
+          torrent_count INTEGER DEFAULT 0,
+          total_size_bytes INTEGER DEFAULT 0,
+          completed_bytes INTEGER DEFAULT 0,
+          downloaded_bytes INTEGER DEFAULT 0,
+          uploaded_bytes INTEGER DEFAULT 0,
+          active_count INTEGER DEFAULT 0,
+          seeding_count INTEGER DEFAULT 0,
+          downloading_count INTEGER DEFAULT 0,
+          stopped_count INTEGER DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES users(id),
+          FOREIGN KEY(profile_id) REFERENCES rtorrent_profiles(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_profile_runtime_stats_user ON profile_runtime_stats(user_id, profile_id)")
+    return existing is None
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     migrate_disk_monitor_preferences_to_profile_scope,
     migrate_profile_preferences_sidebar_columns,
     migrate_operation_log_split_retention,
     migrate_profile_speed_limits_table,
+    migrate_profile_runtime_stats_table,
 )
 
 

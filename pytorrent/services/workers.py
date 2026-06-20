@@ -100,7 +100,7 @@ def _job_payload(row) -> dict:
 def _is_ordered_job(row) -> bool:
     payload = _job_payload(row)
     action = str((row or {}).get("action") or "")
-    return action in {"move", "remove", "add_magnet", "add_torrent_raw"} or bool(payload.get("requires_order"))
+    return action in {"move", "remove", "profile_transfer", "add_magnet", "add_torrent_raw"} or bool(payload.get("requires_order"))
 
 
 def _is_priority_job(row) -> bool:
@@ -112,24 +112,55 @@ def _is_light_job(row) -> bool:
     return _is_light_action(str((row or {}).get("action") or ""))
 
 
-def _has_prior_ordered_jobs(profile_id: int, rowid: int) -> bool:
+def _ordered_profile_ids(row) -> set[int]:
+    """Return every profile touched by an ordered job."""
+    # Note: Profile-transfer jobs touch both source and target profiles, so they must be ordered across both sides.
+    ids: set[int] = set()
+    try:
+        profile_id = int((row or {}).get("profile_id") or 0)
+        if profile_id:
+            ids.add(profile_id)
+    except Exception:
+        pass
+    try:
+        payload = _job_payload(row)
+        target_id = int(payload.get("target_profile_id") or 0)
+        if str((row or {}).get("action") or "") == "profile_transfer" and target_id:
+            ids.add(target_id)
+    except Exception:
+        pass
+    return ids
+
+
+def _ordered_locks_for(row) -> list[threading.Lock]:
+    """Acquire locks in stable order to avoid deadlocks between cross-profile jobs."""
+    return [_get_exclusive_lock(profile_id) for profile_id in sorted(_ordered_profile_ids(row))]
+
+
+def _has_prior_ordered_jobs(profile_ids: set[int], rowid: int) -> bool:
+    if not profile_ids:
+        return False
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT rowid AS _rowid, action, payload_json
+            SELECT rowid AS _rowid, profile_id, action, payload_json
             FROM jobs
-            WHERE profile_id=?
-              AND rowid<?
+            WHERE rowid<?
               AND status IN ('pending', 'running')
             ORDER BY rowid
             """,
-            (profile_id, rowid),
+            (rowid,),
         ).fetchall()
-    return any(_is_ordered_job(row) and not _is_priority_job(row) for row in rows)
+    for row in rows:
+        if not _is_ordered_job(row) or _is_priority_job(row):
+            continue
+        if profile_ids.intersection(_ordered_profile_ids(row)):
+            return True
+    return False
 
 
-def _wait_for_prior_ordered_jobs(job_id: str, profile_id: int, rowid: int) -> bool:
-    while _has_prior_ordered_jobs(profile_id, rowid):
+def _wait_for_prior_ordered_jobs(job_id: str, profile_ids: set[int], rowid: int) -> bool:
+    while _has_prior_ordered_jobs(profile_ids, rowid):
         fresh = _job_row(job_id)
         if not fresh or fresh["status"] == "cancelled":
             return False
@@ -289,6 +320,12 @@ def _emit_disk_refresh_requested(profile_id: int, action_name: str, payload: dic
     _schedule_profile_disk_refresh(int(profile_id), len((payload or {}).get("hashes") or []))
 
 def _execute(profile: dict, action_name: str, payload: dict, user_id: int | None = None):
+    def checkpoint(next_state: dict, current: int, total: int):
+        # Note: Checkpoint is defined before every action branch so profile-transfer jobs can resume safely.
+        job_id = payload.get("__job_id")
+        if job_id:
+            _checkpoint_job(str(job_id), next_state, current, total)
+
     if action_name == "smart_queue_check":
         from . import smart_queue
         return smart_queue.check(profile, user_id=user_id or default_user_id(), force=True)
@@ -302,17 +339,18 @@ def _execute(profile: dict, action_name: str, payload: dict, user_id: int | None
         if bool(payload.get("start", True)):
             disk_guard.assert_can_start_download(profile)
         return rtorrent.add_torrent_raw(profile, raw, bool(payload.get("start", True)), str(payload.get("directory") or ""), str(payload.get("label") or ""), payload.get("file_priorities") or None)
+    if action_name == "profile_transfer":
+        # Note: Target profile is resolved inside the worker with the original user's permissions, not trusted from the request payload.
+        target_profile = get_profile(int(payload.get("target_profile_id") or 0), user_id or default_user_id())
+        if not target_profile:
+            raise ValueError("Target profile does not exist or is not accessible")
+        return rtorrent.transfer_profile(profile, target_profile, payload.get("hashes") or [], payload, checkpoint=checkpoint, resume_state=payload.get("__resume_state") or {})
     if action_name == "set_limits":
         return rtorrent.set_limits(profile, payload.get("down"), payload.get("up"))
     hashes = payload.get("hashes") or []
     if action_name in {"start", "resume", "unpause"}:
         disk_guard.assert_can_start_download(profile)
     state = payload.get("__resume_state") or {}
-
-    def checkpoint(next_state: dict, current: int, total: int):
-        job_id = payload.get("__job_id")
-        if job_id:
-            _checkpoint_job(str(job_id), next_state, current, total)
 
     return rtorrent.action(profile, hashes, action_name, payload, checkpoint=checkpoint, resume_state=state)
 
@@ -341,7 +379,7 @@ def _mark_running(job_id: str, attempts: int) -> bool:
 
 
 def _emit_torrent_refresh(profile: dict, action_name: str) -> None:
-    if action_name not in {"add_magnet", "add_torrent_raw", "remove", "move", "start", "stop", "pause", "resume", "unpause", "set_label", "set_ratio_group", "recheck"}:
+    if action_name not in {"add_magnet", "add_torrent_raw", "remove", "move", "profile_transfer", "start", "stop", "pause", "resume", "unpause", "set_label", "set_ratio_group", "recheck"}:
         return
     try:
         diff = torrent_cache.refresh(profile)
@@ -372,7 +410,7 @@ def _run(job_id: str):
     if not _claim_runner(job_id):
         return
     sem = None
-    ordered_lock = None
+    ordered_locks: list[threading.Lock] = []
     job = {}
     payload = {}
     try:
@@ -387,10 +425,12 @@ def _run(job_id: str):
             return
         profile_id = int(profile["id"])
         if _is_ordered_job(job) and not _is_priority_job(job):
-            if not _wait_for_prior_ordered_jobs(job_id, profile_id, int(job["_rowid"])):
+            involved_profile_ids = _ordered_profile_ids(job)
+            if not _wait_for_prior_ordered_jobs(job_id, involved_profile_ids, int(job["_rowid"])):
                 return
-            ordered_lock = _get_exclusive_lock(profile_id)
-            ordered_lock.acquire()
+            ordered_locks = _ordered_locks_for(job)
+            for lock in ordered_locks:
+                lock.acquire()
         sem = _get_sem(profile, light=_is_light_job(job))
         sem.acquire()
         job = _job_row(job_id)
@@ -416,6 +456,14 @@ def _run(job_id: str):
         action_name = str(job["action"] or "")
         _emit_disk_refresh_requested(int(profile["id"]), action_name, payload, result or {})
         _emit_torrent_refresh(profile, action_name)
+        if action_name == "profile_transfer":
+            # Note: Refresh the destination profile cache as well so users see transferred torrents immediately after switching.
+            try:
+                target_profile = get_profile(int(payload.get("target_profile_id") or 0), int(job.get("user_id") or 0))
+                if target_profile:
+                    _emit_torrent_refresh(target_profile, action_name)
+            except Exception:
+                pass
         _schedule_delayed_torrent_refresh(profile, action_name)
         _emit("job_update", {"id": job_id, "profile_id": profile["id"], "status": "done", "result": result})
     except Exception as exc:
@@ -439,8 +487,8 @@ def _run(job_id: str):
     finally:
         if sem:
             sem.release()
-        if ordered_lock:
-            ordered_lock.release()
+        for lock in reversed(ordered_locks):
+            lock.release()
         _release_runner(job_id)
 
 

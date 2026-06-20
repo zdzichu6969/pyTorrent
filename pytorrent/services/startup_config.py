@@ -74,9 +74,12 @@ def schedule_startup_config_apply(socketio, delay_seconds: int = 60, retry_secon
         socketio.sleep(max(0, int(delay_seconds)))
         started_at = monotonic()
         while True:
+            failed_profile_id = 0
             try:
                 profiles = _profiles()
                 for profile in profiles:
+                    failed_profile_id = int(profile.get("id") or 0)
+                    # Note: Startup config applies per profile after connectivity is detected; it does not depend on the active UI profile.
                     _apply_profile(socketio, profile)
                 pending = [int(profile.get("id") or 0) for profile in profiles if int(profile.get("id") or 0) not in _applied_profiles]
                 if not pending or monotonic() - started_at >= max(0, int(max_wait_seconds)):
@@ -87,7 +90,7 @@ def schedule_startup_config_apply(socketio, delay_seconds: int = 60, retry_secon
                     return
             except Exception as exc:
                 operation_logs.record(
-                    None,
+                    failed_profile_id or None,
                     "rtorrent_config_startup",
                     f"rTorrent startup config scheduler failed: {exc}",
                     severity="warning",
@@ -95,7 +98,7 @@ def schedule_startup_config_apply(socketio, delay_seconds: int = 60, retry_secon
                     action="rtorrent_config",
                     details={"error": str(exc)},
                 )
-                socketio.emit("rtorrent_config_applied", {"ok": False, "profile_id": int(profile_id or 0), "error": str(exc)}, to=f"profile:{int(profile_id or 0)}" if profile_id else None)
+                socketio.emit("rtorrent_config_applied", {"ok": False, "profile_id": int(failed_profile_id or 0), "error": str(exc)}, to=f"profile:{int(failed_profile_id)}" if failed_profile_id else None)
             socketio.sleep(max(5, int(retry_seconds)))
 
     socketio.start_background_task(runner)

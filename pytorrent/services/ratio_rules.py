@@ -137,10 +137,12 @@ def start_scheduler(socketio=None) -> None:
                     profile_id = int(row["profile_id"])
                     with connect() as conn:
                         owner = conn.execute("SELECT user_id FROM rtorrent_profiles WHERE id=?", (profile_id,)).fetchone()
-                    profile = get_profile(profile_id, int(owner["user_id"] if owner and owner.get("user_id") else default_user_id()))
+                    owner_id = int(owner["user_id"] if owner and owner.get("user_id") else default_user_id())
+                    profile = get_profile(profile_id, owner_id)
                     if not profile:
                         continue
-                    result = check(profile)
+                    # Note: Ratio rules are evaluated per profile owner, not the active browser user.
+                    result = check(profile, user_id=owner_id)
                     if socketio and result.get("applied"):
                         socketio.emit("ratio_rules_checked", {"profile_id": profile["id"], **result}, to=f"profile:{profile['id']}")
             except Exception:

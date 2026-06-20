@@ -2,12 +2,22 @@ from __future__ import annotations
 from ._shared import *
 from ..services.rtorrent.diagnostics import profile_diagnostics
 from ..services import auth
+from ..utils import human_size
 
 @bp.get("/profiles")
 def profiles_list():
     profiles = []
     for row in preferences.list_profiles():
         item = dict(row)
+        # Note: Frontend actions can hide write-only operations without trusting this flag; backend still enforces permissions.
+        item["can_write"] = auth.can_write_profile(int(item.get("id") or 0), auth.current_user_id() or default_user_id())
+        stats = preferences.get_profile_runtime_stats(int(item.get("id") or 0))
+        if stats:
+            stats["total_size_h"] = human_size(stats.get("total_size_bytes"))
+            stats["completed_h"] = human_size(stats.get("completed_bytes"))
+            stats["downloaded_h"] = human_size(stats.get("downloaded_bytes"))
+            stats["uploaded_h"] = human_size(stats.get("uploaded_bytes"))
+            item["runtime_stats"] = stats
         settings = backup_service.get_auto_backup_settings(default_user_id(), "profile", int(item.get("id") or 0))
         item["profile_backup_enabled"] = bool(settings.get("enabled"))
         item["profile_backup_interval_hours"] = settings.get("interval_hours")
@@ -44,7 +54,17 @@ def profiles_delete(profile_id: int):
 @bp.post("/profiles/<int:profile_id>/activate")
 def profiles_activate(profile_id: int):
     try:
-        return ok({"profile": preferences.activate_profile(profile_id)})
+        profile = preferences.activate_profile(profile_id)
+        stats_error = ""
+        try:
+            # Note: Profile overview metrics are cached only on user-initiated profile switch, not on every profile list render.
+            preferences.save_profile_runtime_stats(profile, rtorrent.list_torrents(profile), user_id=auth.current_user_id() or default_user_id())
+        except Exception as exc:
+            stats_error = str(exc)
+        response = {"profile": profile}
+        if stats_error:
+            response["stats_error"] = stats_error
+        return ok(response)
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 404
 

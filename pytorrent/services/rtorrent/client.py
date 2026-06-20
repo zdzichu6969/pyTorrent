@@ -345,6 +345,30 @@ def _run_remote_rm(c: ScgiRtorrentClient, path: str, poll_interval: float = 2.0)
         raise RuntimeError(output)
 
 
+
+def remote_can_write_directory(profile: dict, path: str) -> dict:
+    """Return whether the source rTorrent OS user can write to a remote directory safely."""
+    clean = _remote_clean_path(path)
+    # Note: Profile transfers may touch filesystem paths, so only absolute non-root directories are probed.
+    if not clean.startswith("/") or clean in {"/", "."}:
+        return {"ok": False, "path": clean, "error": "unsafe destination path"}
+    script = (
+        'p=$1; '
+        'case "$p" in /*) ;; *) echo "NO\tunsafe path"; exit 0;; esac; '
+        'if [ -d "$p" ]; then '
+        '  if [ -w "$p" ]; then echo "OK\tdirectory writable"; else echo "NO\tdirectory not writable"; fi; '
+        '  exit 0; '
+        'fi; '
+        'parent=${p%/*}; [ -n "$parent" ] || parent=/; '
+        'if [ -d "$parent" ] && [ -w "$parent" ]; then echo "OK\tparent writable"; else echo "NO\tparent not writable"; fi'
+    )
+    try:
+        output = str(_rt_execute(client_for(profile), "execute.capture", "sh", "-c", script, "pytorrent-transfer-write-check", clean) or "").strip()
+    except Exception as exc:
+        return {"ok": False, "path": clean, "error": str(exc)}
+    ok = output.startswith("OK")
+    return {"ok": ok, "path": clean, "message": output.split("\t", 1)[1] if "\t" in output else output}
+
 def _remove_torrent_data(c: ScgiRtorrentClient, torrent_hash: str) -> dict:
     data_path = _safe_rm_rf_path(_torrent_data_path(c, torrent_hash))
     try:

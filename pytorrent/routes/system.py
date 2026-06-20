@@ -372,9 +372,21 @@ def _annotate_path_directories(profile: dict, payload: dict) -> dict:
     return payload
 
 
+def _path_profile_from_request(*, require_write_access: bool = False):
+    profile_id = 0
+    try:
+        profile_id = int((request.args.get("profile_id") if request.method == "GET" else (request.get_json(silent=True) or {}).get("profile_id")) or 0)
+    except Exception:
+        profile_id = 0
+    profile = preferences.get_profile(profile_id, auth.current_user_id() or default_user_id()) if profile_id else request_profile()
+    if profile and require_write_access:
+        require_profile_write(profile.get("id"))
+    return profile
+
+
 @bp.get("/path/default")
 def path_default():
-    profile = request_profile()
+    profile = _path_profile_from_request()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     try:
@@ -386,7 +398,7 @@ def path_default():
 
 @bp.get("/path/browse")
 def path_browse():
-    profile = request_profile()
+    profile = _path_profile_from_request()
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
     base = request.args.get("path") or ""
@@ -398,10 +410,9 @@ def path_browse():
 
 @bp.post("/path/directories")
 def path_directory_create():
-    profile = request_profile()
+    profile = _path_profile_from_request(require_write_access=True)
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
-    require_profile_write(profile.get("id"))
     data = request.get_json(silent=True) or {}
     try:
         # Note: This endpoint only creates an empty directory and does not alter any torrent state.
@@ -413,10 +424,9 @@ def path_directory_create():
 
 @bp.post("/path/directories/rename")
 def path_directory_rename():
-    profile = request_profile()
+    profile = _path_profile_from_request(require_write_access=True)
     if not profile:
         return jsonify({"ok": False, "error": "No profile"}), 400
-    require_profile_write(profile.get("id"))
     data = request.get_json(silent=True) or {}
     path = str(data.get("path") or "").strip()
     if _path_has_cached_torrents(int(profile.get("id") or 0), path):

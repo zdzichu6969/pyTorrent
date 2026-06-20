@@ -577,3 +577,77 @@ def save_preferences(data: dict, user_id: int | None = None, profile_id: int | N
     if disk_payload is not None:
         save_disk_monitor_preferences(profile_id, disk_payload, user_id)
     return get_preferences(user_id, profile_id)
+
+
+def _row_int(row: dict, key: str) -> int:
+    try:
+        return int(float(row.get(key) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def profile_runtime_stats_from_rows(profile: dict, rows: list[dict], user_id: int | None = None) -> dict:
+    # Note: Stored profile stats are intentionally approximate and updated only when the user switches to that profile.
+    user_id = user_id or auth.current_user_id() or default_user_id()
+    total_size = completed = downloaded = uploaded = active = seeding = downloading = stopped = 0
+    for row in rows or []:
+        size = _row_int(row, 'size')
+        total_size += size
+        completed += min(size, _row_int(row, 'completed_bytes')) if size else _row_int(row, 'completed_bytes')
+        downloaded += _row_int(row, 'down_total')
+        uploaded += _row_int(row, 'up_total')
+        status = str(row.get('status') or '').strip().lower()
+        state = bool(row.get('state'))
+        complete = bool(row.get('complete'))
+        if state:
+            active += 1
+        if complete and state:
+            seeding += 1
+        if not complete and state and status != 'queued':
+            downloading += 1
+        if not state:
+            stopped += 1
+    return {
+        'profile_id': int(profile.get('id') or 0),
+        'user_id': int(user_id),
+        'torrent_count': len(rows or []),
+        'total_size_bytes': total_size,
+        'completed_bytes': completed,
+        'downloaded_bytes': downloaded,
+        'uploaded_bytes': uploaded,
+        'active_count': active,
+        'seeding_count': seeding,
+        'downloading_count': downloading,
+        'stopped_count': stopped,
+        'updated_at': utcnow(),
+    }
+
+
+def save_profile_runtime_stats(profile: dict, rows: list[dict], user_id: int | None = None) -> dict:
+    stats = profile_runtime_stats_from_rows(profile, rows, user_id=user_id)
+    with connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO profile_runtime_stats(
+              profile_id,user_id,torrent_count,total_size_bytes,completed_bytes,downloaded_bytes,uploaded_bytes,
+              active_count,seeding_count,downloading_count,stopped_count,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(profile_id) DO UPDATE SET
+              user_id=excluded.user_id, torrent_count=excluded.torrent_count, total_size_bytes=excluded.total_size_bytes,
+              completed_bytes=excluded.completed_bytes, downloaded_bytes=excluded.downloaded_bytes, uploaded_bytes=excluded.uploaded_bytes,
+              active_count=excluded.active_count, seeding_count=excluded.seeding_count, downloading_count=excluded.downloading_count,
+              stopped_count=excluded.stopped_count, updated_at=excluded.updated_at
+            """,
+            (
+                stats['profile_id'], stats['user_id'], stats['torrent_count'], stats['total_size_bytes'], stats['completed_bytes'],
+                stats['downloaded_bytes'], stats['uploaded_bytes'], stats['active_count'], stats['seeding_count'],
+                stats['downloading_count'], stats['stopped_count'], stats['updated_at'],
+            ),
+        )
+    return stats
+
+
+def get_profile_runtime_stats(profile_id: int) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM profile_runtime_stats WHERE profile_id=?", (int(profile_id),)).fetchone()
+    return dict(row) if row else None

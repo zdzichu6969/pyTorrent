@@ -200,9 +200,14 @@ def start_scheduler(socketio=None) -> None:
                 with connect() as conn:
                     profiles = conn.execute("SELECT DISTINCT profile_id FROM rss_feeds WHERE enabled=1 AND profile_id IS NOT NULL").fetchall()
                 for row in profiles:
-                    profile = get_profile(int(row["profile_id"]))
+                    profile_id = int(row["profile_id"])
+                    with connect() as conn:
+                        owner = conn.execute("SELECT user_id FROM rtorrent_profiles WHERE id=?", (profile_id,)).fetchone()
+                    owner_id = int(owner["user_id"] if owner and owner.get("user_id") else default_user_id())
+                    profile = get_profile(profile_id, owner_id)
                     if profile:
-                        result = check(profile, only_due=True)
+                        # Note: RSS jobs run with the profile owner in background mode, independent of browser activity.
+                        result = check(profile, user_id=owner_id, only_due=True)
                         if socketio and result.get("queued"):
                             socketio.emit("rss_checked", {"profile_id": profile["id"], **result}, to=f"profile:{profile['id']}")
             except Exception:

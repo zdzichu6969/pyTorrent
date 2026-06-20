@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+import threading
 import time
 import psutil
 from datetime import datetime, timezone
@@ -46,6 +47,29 @@ _LAST_RUN: dict[int, float] = {}
 _LAST_LIMITS: dict[int, tuple[int, int]] = {}
 _HIGH_CPU_SINCE: dict[int, float] = {}
 _PLANNER_CONNECTION_STATUS: dict[int, str] = {}
+_SCHEDULER_STARTED = False
+_SCHEDULER_LOCK = threading.Lock()
+_PROFILE_LOCKS: dict[int, threading.Lock] = {}
+_PROFILE_LOCKS_GUARD = threading.Lock()
+
+
+def _profile_lock(profile_id: int) -> threading.Lock:
+    """Keep one planner run per profile active at a time."""
+    with _PROFILE_LOCKS_GUARD:
+        if profile_id not in _PROFILE_LOCKS:
+            _PROFILE_LOCKS[profile_id] = threading.Lock()
+        return _PROFILE_LOCKS[profile_id]
+
+
+def _all_profiles() -> list[dict]:
+    """Read every configured profile directly from DB for browser-independent background work."""
+    with connect() as conn:
+        return [dict(row) for row in conn.execute("SELECT * FROM rtorrent_profiles ORDER BY id").fetchall()]
+
+
+def _owner_user_id(profile: dict) -> int:
+    """Use the profile owner for background planner checks."""
+    return int(profile.get("user_id") or default_user_id())
 
 
 def _rtorrent_ready(profile: dict) -> tuple[bool, str]:
@@ -580,32 +604,42 @@ def preview(profile: dict, user_id: int | None = None) -> dict:
 
 
 def start_scheduler(socketio=None) -> None:
+    """Start the browser-independent planner loop for every configured profile."""
+    global _SCHEDULER_STARTED
+    with _SCHEDULER_LOCK:
+        if _SCHEDULER_STARTED:
+            return
+        _SCHEDULER_STARTED = True
+
     def loop():
         while True:
             try:
-                from .preferences import active_profile
                 from .websocket import emit_profile_event
-                from . import auth
-                profiles: list[dict]
-                if auth.enabled():
-                    with connect() as conn:
-                        profiles = conn.execute("SELECT * FROM rtorrent_profiles ORDER BY id").fetchall()
-                else:
-                    profile = active_profile()
-                    profiles = [profile] if profile else []
-                for profile in profiles:
+                for profile in _all_profiles():
+                    profile_id = int(profile.get("id") or 0)
+                    if not profile_id:
+                        continue
+                    lock = _profile_lock(profile_id)
+                    if not lock.acquire(blocking=False):
+                        continue
                     try:
-                        result = enforce(profile, force=False)
+                        # Note: Background planner runs per configured profile with the profile owner, not only for the active UI profile.
+                        result = enforce(profile, force=False, user_id=_owner_user_id(profile))
                         if socketio and result.get("enabled") and not result.get("skipped"):
-                            emit_profile_event(socketio, "download_plan_update", result, int(profile["id"]))
+                            emit_profile_event(socketio, "download_plan_update", result, profile_id)
                     except Exception as exc:
                         if socketio:
-                            emit_profile_event(socketio, "download_plan_update", {"ok": False, "profile_id": int(profile.get("id") or 0), "error": str(exc)}, int(profile.get("id") or 0))
+                            emit_profile_event(socketio, "download_plan_update", {"ok": False, "profile_id": profile_id, "error": str(exc)}, profile_id)
+                    finally:
+                        lock.release()
             except Exception:
                 pass
             if socketio:
                 socketio.sleep(30)
             else:
                 time.sleep(30)
+
     if socketio:
         socketio.start_background_task(loop)
+    else:
+        threading.Thread(target=loop, daemon=True, name="pytorrent-download-planner-scheduler").start()

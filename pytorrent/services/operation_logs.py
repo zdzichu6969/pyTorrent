@@ -80,7 +80,7 @@ def _details_summary(details: dict) -> str:
     priority = [
         "status", "job_id", "attempt", "attempts", "count", "hash_count", "action",
         "source", "source_label", "directory", "label", "target_path", "remove_data",
-        "move_data", "keep_seeding", "error", "error_count", "result_count",
+        "move_data", "target_profile_id", "move_data_downgraded", "keep_seeding", "error", "error_count", "result_count",
     ]
     parts: list[str] = []
     for key in priority:
@@ -315,6 +315,7 @@ def _job_action_label(action: str) -> str:
         "set_ratio_group": "Set ratio group",
         "set_limits": "Set speed limits",
         "smart_queue_check": "Smart Queue check",
+        "profile_transfer": "Move to another profile",
     }
     return labels.get(str(action or ""), str(action or "job"))
 
@@ -354,6 +355,8 @@ def record_job_event(profile_id: int, action: str, status: str, payload: dict | 
         "target_path": ctx.get("target_path") or payload.get("path"),
         "remove_data": ctx.get("remove_data") or payload.get("remove_data"),
         "move_data": ctx.get("move_data") or payload.get("move_data"),
+        "target_profile_id": ctx.get("target_profile_id") or payload.get("target_profile_id"),
+        "move_data_downgraded": ctx.get("move_data_downgraded") or payload.get("move_data_downgraded"),
         "keep_seeding": payload.get("keep_seeding"),
         "hash_count": len(hashes),
         "error": error,

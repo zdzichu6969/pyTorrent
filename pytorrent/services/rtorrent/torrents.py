@@ -1,7 +1,7 @@
 from __future__ import annotations
 import time
 from .client import *
-from .files import set_file_priorities
+from .files import export_torrent_file, iter_remote_file_chunks, set_file_priorities
 from .system import disk_usage_for_default_path
 
 XMLRPC_DEFAULT_SIZE_LIMIT_BYTES = 512 * 1024
@@ -803,6 +803,140 @@ def start_or_resume_hash(c: ScgiRtorrentClient, torrent_hash: str, prefer_start:
     result['after'] = after
     result['ok'] = result.get('ok', True)
     return result
+
+
+def _read_exported_torrent_bytes(profile: dict, torrent_hash: str) -> tuple[bytes, dict]:
+    item = export_torrent_file(profile, torrent_hash)
+    if item.get("local"):
+        return LocalPath(str(item.get("path") or "")).read_bytes(), item
+    data = b"".join(bytes(chunk) for chunk in iter_remote_file_chunks(profile, str(item.get("path") or "")) if chunk)
+    if not data:
+        raise RuntimeError(f"Cannot read exported torrent file for {torrent_hash}")
+    return data, item
+
+
+def _move_profile_transfer_data(source_client: ScgiRtorrentClient, torrent_hash: str, target_path: str) -> dict:
+    """Move one torrent data path for a profile transfer after backend permission checks."""
+    src = _remote_clean_path(_torrent_data_path(source_client, torrent_hash))
+    if not src:
+        raise ValueError(f"Cannot determine source path for {torrent_hash}")
+    dst = _remote_join(target_path, posixpath.basename(src.rstrip("/")))
+    try:
+        source_client.call("d.stop", torrent_hash)
+    except Exception:
+        pass
+    try:
+        source_client.call("d.close", torrent_hash)
+    except Exception:
+        pass
+    if src == dst:
+        return {"skipped_data_move": "source and destination are the same"}
+    _run_remote_move(source_client, src, dst)
+    return {"moved_from": src, "moved_to": dst}
+
+
+def transfer_profile(source_profile: dict, target_profile: dict, torrent_hashes: list[str], payload: dict | None = None, checkpoint=None, resume_state: dict | None = None) -> dict:
+    """Move torrent entries between rTorrent profiles; data moving is delegated to a separate helper."""
+    payload = payload or {}
+    resume_state = resume_state or {}
+    target_path = _remote_clean_path(payload.get("target_path") or payload.get("path") or "")
+    move_data = bool(payload.get("move_data"))
+    post_action = str(payload.get("post_action") or "none").strip().lower()
+    if post_action not in {"none", "current", "start", "stop", "pause", "check", "recheck"}:
+        raise ValueError("Unsupported post-transfer action")
+    label_mode = str(payload.get("label_mode") or "none").strip().lower()
+    label_value = str(payload.get("label_value") or "").strip()
+    if label_mode not in {"none", "custom", "moved_from", "moved_to"}:
+        label_mode = "none"
+    if label_mode == "moved_from":
+        label_value = f"Moved from {source_profile.get('name') or source_profile.get('id') or 'profile'}"
+    elif label_mode == "moved_to":
+        label_value = f"Moved to {target_profile.get('name') or target_profile.get('id') or 'profile'}"
+    elif label_mode != "custom":
+        label_value = ""
+    if len(label_value) > 120:
+        label_value = label_value[:120]
+    if not target_path or not target_path.startswith("/") or target_path == "/":
+        raise ValueError("Missing or unsafe target path")
+    completed_hashes = set(str(x) for x in (resume_state.get("completed_hashes") or []))
+    previous_results = list(resume_state.get("results") or [])
+    source_client = client_for(source_profile)
+    target_client = client_for(target_profile)
+
+    def mark_done(torrent_hash: str, results: list) -> None:
+        completed_hashes.add(str(torrent_hash))
+        if checkpoint:
+            checkpoint({"completed_hashes": sorted(completed_hashes), "results": results}, len(completed_hashes), len(torrent_hashes))
+
+    results = previous_results
+    for h in [x for x in torrent_hashes if str(x) not in completed_hashes]:
+        item = {
+            "hash": h,
+            "source_profile_id": int(source_profile.get("id") or 0),
+            "target_profile_id": int(target_profile.get("id") or 0),
+            "target_path": target_path,
+            "move_data": move_data,
+            "move_data_requested": bool(payload.get("move_data_requested")),
+            "move_data_downgraded": bool(payload.get("move_data_downgraded")),
+        }
+        data, exported = _read_exported_torrent_bytes(source_profile, h)
+        item["exported_from"] = exported.get("path")
+        limit = validate_torrent_upload_size(target_profile, data, False, target_path, "")
+        if not limit.get("ok"):
+            raise RuntimeError(f"Target profile XML-RPC limit is too small for {h}: {limit.get('request_h')} > {limit.get('limit_h')}")
+        try:
+            label = str(source_client.call("d.custom1", h) or "")
+        except Exception:
+            label = ""
+        target_label = label_value if label_value else label
+        try:
+            was_state = int(source_client.call("d.state", h) or 0)
+        except Exception:
+            was_state = 0
+        try:
+            was_active = int(source_client.call("d.is_active", h) or 0)
+        except Exception:
+            was_active = was_state
+        moved_to = ""
+        if move_data:
+            move_result = _move_profile_transfer_data(source_client, h, target_path)
+            item.update(move_result)
+            moved_to = str(move_result.get("moved_to") or "")
+        # Note: The default keeps the torrent status from the source profile; explicit actions override it.
+        start_on_target = bool(was_state or was_active) if post_action in {"none", "current"} else post_action == "start"
+        try:
+            added = add_torrent_raw(target_profile, data, start_on_target, target_path, target_label)
+            if not added.get("ok"):
+                raise RuntimeError(added.get("error") or "target add failed")
+        except Exception:
+            if move_data and moved_to:
+                try:
+                    source_client.call("d.directory.set", h, target_path)
+                    if was_state or was_active:
+                        source_client.call("d.start", h)
+                    item["rollback"] = "source torrent kept and pointed at moved data"
+                except Exception as rollback_exc:
+                    item["rollback_error"] = str(rollback_exc)
+            raise
+        if post_action in {"stop", "pause", "check", "recheck"}:
+            try:
+                if post_action == "stop":
+                    target_client.call("d.stop", h)
+                elif post_action == "pause":
+                    pause_hash(target_client, h)
+                else:
+                    target_client.call("d.check_hash", h)
+                item["post_action_applied"] = post_action
+            except Exception as post_exc:
+                item["post_action_error"] = str(post_exc)
+        source_client.call("d.erase", h)
+        item["target_started"] = start_on_target
+        item["label"] = target_label
+        item["previous_label"] = label
+        item["post_action"] = post_action
+        results.append(item)
+        mark_done(h, results)
+    return {"ok": True, "count": len(torrent_hashes), "move_data": move_data, "target_profile_id": int(target_profile.get("id") or 0), "target_path": target_path, "label": label_value, "post_action": post_action, "results": results}
 
 def action(profile: dict, torrent_hashes: list[str], name: str, payload: dict | None = None, checkpoint=None, resume_state: dict | None = None) -> dict:
     payload = payload or {}

@@ -261,6 +261,11 @@ def enrich_bulk_payload(profile: dict, action_name: str, data: dict) -> dict:
         payload["job_context"]["move_data"] = bool(payload.get("move_data"))
     if action_name == "remove":
         payload["job_context"]["remove_data"] = bool(payload.get("remove_data"))
+    if action_name == "profile_transfer":
+        payload["job_context"]["target_profile_id"] = int(payload.get("target_profile_id") or 0)
+        payload["job_context"]["target_path"] = str(payload.get("target_path") or payload.get("path") or "")
+        payload["job_context"]["move_data"] = bool(payload.get("move_data"))
+        payload["job_context"]["move_data_downgraded"] = bool(payload.get("move_data_downgraded"))
     return payload
 
 

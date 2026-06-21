@@ -4991,72 +4991,72 @@ body,
   width: 100%;
 }
 
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(1),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(1),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(1),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(1) {
+.peers-table:not(.peers-table-hosts) th:nth-child(1),
+.peers-table:not(.peers-table-hosts) td:nth-child(1),
+.peers-table.peers-table-hosts th:nth-child(1),
+.peers-table.peers-table-hosts td:nth-child(1) {
   width: 4%;
 }
 
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(2),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(2),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(2),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(2) {
+.peers-table:not(.peers-table-hosts) th:nth-child(2),
+.peers-table:not(.peers-table-hosts) td:nth-child(2),
+.peers-table.peers-table-hosts th:nth-child(2),
+.peers-table.peers-table-hosts td:nth-child(2) {
   width: 13%;
 }
 
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(3),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(3) {
+.peers-table.peers-table-hosts th:nth-child(3),
+.peers-table.peers-table-hosts td:nth-child(3) {
   width: 15%;
 }
 
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(3),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(3),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(4),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(4),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(4),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(4),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(5),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(5) {
+.peers-table:not(.peers-table-hosts) th:nth-child(3),
+.peers-table:not(.peers-table-hosts) td:nth-child(3),
+.peers-table:not(.peers-table-hosts) th:nth-child(4),
+.peers-table:not(.peers-table-hosts) td:nth-child(4),
+.peers-table.peers-table-hosts th:nth-child(4),
+.peers-table.peers-table-hosts td:nth-child(4),
+.peers-table.peers-table-hosts th:nth-child(5),
+.peers-table.peers-table-hosts td:nth-child(5) {
   width: 8%;
 }
 
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(5),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(5),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(6),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(6) {
+.peers-table:not(.peers-table-hosts) th:nth-child(5),
+.peers-table:not(.peers-table-hosts) td:nth-child(5),
+.peers-table.peers-table-hosts th:nth-child(6),
+.peers-table.peers-table-hosts td:nth-child(6) {
   width: 15%;
 }
 
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(6),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(6),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(7),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(7) {
+.peers-table:not(.peers-table-hosts) th:nth-child(6),
+.peers-table:not(.peers-table-hosts) td:nth-child(6),
+.peers-table.peers-table-hosts th:nth-child(7),
+.peers-table.peers-table-hosts td:nth-child(7) {
   width: 8rem;
 }
 
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(7),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(7),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(8),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(8),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(8),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(8),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(9),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(9) {
+.peers-table:not(.peers-table-hosts) th:nth-child(7),
+.peers-table:not(.peers-table-hosts) td:nth-child(7),
+.peers-table:not(.peers-table-hosts) th:nth-child(8),
+.peers-table:not(.peers-table-hosts) td:nth-child(8),
+.peers-table.peers-table-hosts th:nth-child(8),
+.peers-table.peers-table-hosts td:nth-child(8),
+.peers-table.peers-table-hosts th:nth-child(9),
+.peers-table.peers-table-hosts td:nth-child(9) {
   width: 6%;
 }
 
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(9),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(9),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(10),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(10) {
+.peers-table:not(.peers-table-hosts) th:nth-child(9),
+.peers-table:not(.peers-table-hosts) td:nth-child(9),
+.peers-table.peers-table-hosts th:nth-child(10),
+.peers-table.peers-table-hosts td:nth-child(10) {
   width: 5%;
 }
 
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) th:nth-child(10),
-.peers-table:not(.mobile-details-peers-table):not(.peers-table-hosts) td:nth-child(10),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts th:nth-child(11),
-.peers-table:not(.mobile-details-peers-table).peers-table-hosts td:nth-child(11) {
+.peers-table:not(.peers-table-hosts) th:nth-child(10),
+.peers-table:not(.peers-table-hosts) td:nth-child(10),
+.peers-table.peers-table-hosts th:nth-child(11),
+.peers-table.peers-table-hosts td:nth-child(11) {
   width: 10%;
 }
 
@@ -5069,83 +5069,28 @@ body,
   white-space: nowrap;
 }
 
-/* Note: Mobile torrent details use a stable table so progress bars always render on a 0-100% track. */
+/* Note: Responsive table wrappers keep detail tables scrollable while preserving the rounded app table frame. */
+.responsive-table-wrap {
+  -webkit-overflow-scrolling: touch;
+  background: var(--bs-body-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.55rem;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  touch-action: pan-x pan-y;
+  width: 100%;
+}
+
+.responsive-table-wrap > .detail-table {
+  margin-bottom: 0;
+}
+
 .mobile-details-modal .modal-body {
   overflow-x: hidden;
-}
-
-.mobile-details-modal .responsive-table-wrap {
-  max-width: 100%;
-}
-
-.mobile-details-peers-table {
-  margin-bottom: 0;
-  min-width: 780px;
-}
-
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(1),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(1),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(1),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(1) {
-  width: 5%;
-}
-
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(2),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(2),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(2),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(2) {
-  width: 14%;
-}
-
-.mobile-details-peers-table.peers-table-hosts th:nth-child(3),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(3) {
-  width: 16%;
-}
-
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(3),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(3),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(4),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(4) {
-  width: 16%;
-}
-
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(4),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(4),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(5),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(5) {
-  width: 15%;
-}
-
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(5),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(5),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(6),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(6) {
-  width: 8rem;
-}
-
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(6),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(6),
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(7),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(7),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(7),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(7),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(8),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(8) {
-  width: 7%;
-}
-
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(8),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(8),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(9),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(9) {
-  width: 6%;
-}
-
-.mobile-details-peers-table:not(.peers-table-hosts) th:nth-child(9),
-.mobile-details-peers-table:not(.peers-table-hosts) td:nth-child(9),
-.mobile-details-peers-table.peers-table-hosts th:nth-child(10),
-.mobile-details-peers-table.peers-table-hosts td:nth-child(10) {
-  width: 8%;
 }
 
 /* App modal widths stay consistent while Bootstrap still handles full-screen mobile breakpoints. */
@@ -5610,23 +5555,6 @@ body,
   color: var(--bs-secondary-color);
   font-size: 0.78rem;
   overflow-wrap: anywhere;
-}
-
-.mobile-details-files-table {
-  margin-bottom: 0;
-  min-width: 760px;
-}
-
-.mobile-details-trackers-table {
-  margin-bottom: 0;
-}
-
-.mobile-details-files-table .file-progress {
-  min-width: 7.5rem;
-}
-
-.mobile-details-files-table .file-priority {
-  min-width: 6.5rem;
 }
 
 .mobile-details-file-path {
